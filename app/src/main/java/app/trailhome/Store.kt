@@ -22,7 +22,12 @@ object Store {
     var tab by mutableIntStateOf(0)
     var focus by mutableStateOf<Mark?>(null)
     var sp: android.content.SharedPreferences? = null
-    fun select(id: Long) { targetId = id; sp?.edit()?.putLong("target", id)?.apply() }
+    var guiding by mutableStateOf(false)
+    var startId by mutableLongStateOf(-1L)
+    var showHelp by mutableStateOf(false)
+    fun select(id: Long) { targetId = id; guiding = id != -1L; sp?.edit()?.putLong("target", id)?.apply() }
+    fun markStart(id: Long) { startId = id; sp?.edit()?.putLong("start", id)?.apply() }
+    fun startMark() = marks.firstOrNull { it.id == startId }
     fun updateMark(m: Mark) { val i = marks.indexOfFirst { it.id == m.id }; if (i >= 0) { marks[i] = m; saveMarks() } }
     var recording by mutableStateOf(false)
     private var dir: File? = null
@@ -33,7 +38,7 @@ object Store {
         if (dir != null) return
         dir = c.filesDir
         sp = c.getSharedPreferences("s", 0)
-        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L)
+        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L); startId = sp!!.getLong("start", -1L)
         runCatching {
             val a = JSONArray(File(dir, "marks.json").readText())
             for (i in 0 until a.length()) a.getJSONObject(i).let {
@@ -114,3 +119,10 @@ object L {
     val en get() = mode == "en" || (mode == "system" && Locale.getDefault().language != "ru")
 }
 fun tr(ru: String, en: String) = if (L.en) en else ru
+
+fun turnText(rel: Double): String {
+    val a = if (rel > 180) 360 - rel else rel
+    val n = (a / 5).roundToInt() * 5
+    if (n == 0) return tr("прямо", "straight")
+    return (if (rel <= 180) tr("вправо", "right") else tr("влево", "left")) + " $n " + tr("градусов", "degrees")
+}

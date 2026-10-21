@@ -20,6 +20,8 @@ class NavService : Service(), LocationListener, SensorEventListener {
     private var lastSpeak = 0L
     private var first = true
     private var started = false
+    private val h = android.os.Handler(android.os.Looper.getMainLooper())
+    private val tick = object : Runnable { override fun run() { speak(); h.postDelayed(this, 1000) } }
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -37,6 +39,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         Store.init(this)
         Store.recording = true
+        h.post(tick)
         tts = TextToSpeech(this) { if (it == TextToSpeech.SUCCESS) tts?.language = if (L.en) Locale.US else Locale("ru") }
         try {
             (getSystemService(LOCATION_SERVICE) as LocationManager).requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 2f, this)
@@ -52,7 +55,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         if (first) {
             first = false
             Store.addMark(tr("Старт", "Start") + " №" + (Store.marks.count { it.name.startsWith("Старт") || it.name.startsWith("Start") } + 1) + " · " + SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date()), p.lat, p.lon)
-            Store.select(Store.marks.last().id)
+            Store.markStart(Store.marks.last().id); Store.select(-1)
         }
         Store.track.add(p)
         if (Store.track.size % 10 == 0) Store.saveTrack()
@@ -61,15 +64,15 @@ class NavService : Service(), LocationListener, SensorEventListener {
 
     private fun speak() {
         val sp = getSharedPreferences("s", MODE_PRIVATE)
-        if (!sp.getBoolean("voice", true)) return
+        if (!Store.guiding || !sp.getBoolean("voice", true)) { lastSpeak = 0; return }
         val t = Store.target() ?: return
         val me = Store.loc ?: return
         val now = System.currentTimeMillis()
-        if (now - lastSpeak < sp.getInt("interval", 30) * 1000L) return
+        if (now - lastSpeak < sp.getInt("interval", 15) * 1000L) return
         lastSpeak = now
-        val d = Geo.dist(me.lat, me.lon, t.lat, t.lon)
-        val txt = if (d < 15) tr("Вы пришли: ", "You have arrived: ") + t.name else "${t.name}: ${Geo.clock(Geo.rel(me, t))}, ${Geo.fmt(d)}"
-        tts?.speak(txt, TextToSpeech.QUEUE_FLUSH, null, "n")
+        val arrived = Geo.dist(me.lat, me.lon, t.lat, t.lon) < 15
+        tts?.speak(if (arrived) tr("На месте", "Arrived") else turnText(Geo.rel(me, t)), TextToSpeech.QUEUE_FLUSH, null, "n")
+        if (arrived) Store.guiding = false
     }
 
     override fun onSensorChanged(e: SensorEvent) {
@@ -83,7 +86,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
     override fun onDestroy() {
         (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(this)
         (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(this)
-        tts?.shutdown(); Store.saveTrack(); Store.recording = false
+        h.removeCallbacks(tick); tts?.shutdown(); Store.saveTrack(); Store.recording = false
         super.onDestroy()
     }
 }

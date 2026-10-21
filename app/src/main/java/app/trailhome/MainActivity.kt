@@ -1,4 +1,4 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 package app.trailhome
 
 import android.Manifest
@@ -35,6 +35,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.viewinterop.AndroidView
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
@@ -82,28 +85,45 @@ fun prime(c: Context) {
 
 @Composable fun App() {
     val ctx = LocalContext.current
+    var menu by remember { mutableStateOf(false) }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { prime(ctx) }
     LaunchedEffect(Unit) {
         prime(ctx)
         perm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS))
     }
     val items = listOf(tr("Навигация", "Navigate") to Icons.Default.Explore, tr("Карта", "Map") to Icons.Default.Map,
-        tr("Метки", "Marks") to Icons.Default.Place, tr("Трек", "Track") to Icons.Default.Timeline, tr("Настройки", "Settings") to Icons.Default.Settings)
-    Scaffold(bottomBar = {
+        tr("Метки", "Marks") to Icons.Default.Place, tr("Трек", "Track") to Icons.Default.Timeline)
+    Scaffold(topBar = {
+        TopAppBar(title = { Text(if (Store.tab == 4) tr("Настройки", "Settings") else "TrailHome", fontWeight = FontWeight.Bold) },
+            navigationIcon = { if (Store.tab == 4) IconButton({ Store.tab = 0 }) { Icon(Icons.Default.ArrowBack, tr("Назад", "Back")) } },
+            actions = {
+                Box {
+                    IconButton({ menu = true }) { Icon(Icons.Default.MoreVert, tr("Меню", "Menu")) }
+                    DropdownMenu(menu, { menu = false }) {
+                        DropdownMenuItem({ Text(tr("Настройки", "Settings")) }, { Store.tab = 4; menu = false }, leadingIcon = { Icon(Icons.Default.Settings, null) })
+                        DropdownMenuItem({ Text(tr("Инструкция", "User guide")) }, { Store.showHelp = true; menu = false }, leadingIcon = { Icon(Icons.Default.Info, null) })
+                    }
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+    }, bottomBar = {
         NavigationBar { items.forEachIndexed { i, (n, ic) -> NavigationBarItem(Store.tab == i, { Store.tab = i }, { Icon(ic, n) }, label = { Text(n, maxLines = 1) }) } }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (Store.tab) { 0 -> NavScreen(); 1 -> MapScreen(); 2 -> MarksScreen(); 3 -> TrackScreen(); else -> SettingsScreen() }
         }
     }
+    if (Store.showHelp) AlertDialog({ Store.showHelp = false }, title = { Text(tr("Инструкция", "User guide")) },
+        text = { Text(if (L.en) HELP_EN else HELP_RU, Modifier.verticalScroll(rememberScrollState())) },
+        confirmButton = { TextButton({ Store.showHelp = false }) { Text(tr("Закрыть", "Close")) } })
 }
-
-@Composable fun VoiceField(v: String, onV: (String) -> Unit, label: String, kb: KeyboardType = KeyboardType.Text, append: Boolean = false) {
+@Composable fun VoiceField(v: String, onV: (String) -> Unit, label: String, kb: KeyboardType = KeyboardType.Text, append: Boolean = false, multiline: Boolean = false) {
     val ctx = LocalContext.current
     val l = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
         r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { onV(if (append && v.isNotBlank()) "$v $it" else it) }
     }
     OutlinedTextField(v, onV, Modifier.fillMaxWidth(), label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = kb), shape = RoundedCornerShape(14.dp),
+        singleLine = !multiline, maxLines = if (multiline) 5 else 1,
         trailingIcon = {
             IconButton({
                 val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -112,7 +132,6 @@ fun prime(c: Context) {
             }) { Icon(Icons.Default.Mic, tr("Голосовой ввод", "Voice input")) }
         })
 }
-
 @Composable fun MarkDialog(m: Mark?, lat0: Double?, lon0: Double?, onDone: () -> Unit) {
     val ctx = LocalContext.current
     fun f(d: Double?) = d?.let { String.format(Locale.US, "%.6f", it) } ?: ""
@@ -122,13 +141,12 @@ fun prime(c: Context) {
     AlertDialog(onDone, title = { Text(if (m == null) tr("Новая метка", "New mark") else tr("Метка", "Mark")) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             VoiceField(n, { n = it }, tr("Название", "Name"))
-            VoiceField(note, { note = it }, tr("Заметка", "Note"), append = true)
+            VoiceField(note, { note = it }, tr("Заметка", "Note"), append = true, multiline = true)
             VoiceField(la, { la = it }, tr("Широта", "Latitude"), KeyboardType.Decimal)
             VoiceField(lo, { lo = it }, tr("Долгота", "Longitude"), KeyboardType.Decimal)
-            if (m != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton({ Store.select(m.id); Store.tab = 0; onDone() }) { Text(tr("Цель", "Target")) }
-                OutlinedButton({ Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); onDone() }) { Icon(Icons.Default.Delete, null); Text(tr("Удалить", "Delete")) }
-            }
+            if (m != null) Seg(listOf(
+                SegItem(tr("Цель", "Target"), Icons.Default.Navigation) { Store.select(m.id); Store.tab = 0; onDone() },
+                SegItem(tr("Удалить", "Delete"), Icons.Default.Delete) { Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); onDone() }))
         }
     }, confirmButton = {
         TextButton({
@@ -142,7 +160,6 @@ fun prime(c: Context) {
         }) { Text(tr("Сохранить", "Save")) }
     }, dismissButton = { TextButton(onDone) { Text(tr("Отмена", "Cancel")) } })
 }
-
 @Composable fun MapScreen() {
     val ctx = LocalContext.current
     var pending by remember { mutableStateOf<GeoPoint?>(null) }; var sel by remember { mutableStateOf<Mark?>(null) }
@@ -213,32 +230,35 @@ fun prime(c: Context) {
 
 @Composable fun NavScreen() {
     val ctx = LocalContext.current
-    var add by remember { mutableStateOf(false) }; var menu by remember { mutableStateOf(false) }
-    val me = Store.loc; val t = Store.target()
+    var add by remember { mutableStateOf(false) }; var pick by remember { mutableStateOf(false) }
+    val me = Store.loc; val t = Store.target(); val st = Store.startMark()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), Arrangement.spacedBy(12.dp), Alignment.CenterHorizontally) {
-        Box {
-            OutlinedButton({ menu = true }, Modifier.fillMaxWidth()) { Icon(Icons.Default.Place, null); Spacer(Modifier.width(8.dp)); Text(t?.name ?: tr("Выберите цель", "Choose target")) }
-            DropdownMenu(menu, { menu = false }) { Store.marks.forEach { m -> DropdownMenuItem({ Text(m.name) }, { Store.select(m.id); menu = false }) } }
-        }
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(24.dp)) {
             Radar(Modifier.fillMaxWidth().aspectRatio(1f).padding(12.dp))
         }
         if (me != null && t != null) {
             val d = Geo.dist(me.lat, me.lon, t.lat, t.lon)
-            Text(Geo.fmt(d), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            Text(if (d < 15) tr("Вы на месте", "You are here") else Geo.clock(Geo.rel(me, t)), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.secondary)
-        } else Text(if (!Store.recording) tr("Нажмите «Старт», чтобы включить GPS", "Press Start to enable GPS") else if (me == null) tr("Ищу спутники…", "Searching for satellites…") else tr("Выберите цель", "Choose a target"))
-        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-            Button({
+            Text(if (d < 15) tr("На месте", "Arrived") else turnText(Geo.rel(me, t)), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+            Text(t.name + " · " + Geo.fmt(d), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(if (Store.guiding) tr("Голосовые подсказки включены", "Voice guidance on") else tr("Подсказки выключены", "Guidance off"), style = MaterialTheme.typography.labelMedium)
+        } else Text(
+            if (!Store.recording) tr("Нажмите «Старт», чтобы начать запись маршрута", "Press Start to begin recording your route")
+            else if (me == null) tr("Ищу спутники…", "Searching for satellites…")
+            else tr("Идёт запись, подсказки молчат. Выберите цель, чтобы вернуться", "Recording quietly. Choose a target to go back"))
+        Seg(listOf(
+            SegItem(if (Store.recording) tr("Стоп", "Stop") else tr("Старт", "Start"), if (Store.recording) Icons.Default.Stop else Icons.Default.PlayArrow, Store.recording) {
                 val i = Intent(ctx, NavService::class.java)
                 if (Store.recording) ctx.stopService(i) else ctx.startForegroundService(i)
-            }, Modifier.weight(1f)) { Icon(if (Store.recording) Icons.Default.Stop else Icons.Default.PlayArrow, null); Text(if (Store.recording) tr("Стоп", "Stop") else tr("Старт", "Start")) }
-            FilledTonalButton({ add = true }, Modifier.weight(1f)) { Icon(Icons.Default.MyLocation, null); Spacer(Modifier.width(6.dp)); Text(tr("Метка", "Mark")) }
-        }
+            },
+            SegItem(tr("Метка", "Mark"), Icons.Default.MyLocation) { add = true }))
+        Seg(listOf(
+            SegItem(tr("К старту", "To start"), Icons.Default.Home, enabled = st != null) { Store.select(st!!.id) },
+            SegItem(tr("Цель", "Target"), Icons.Default.Place) { pick = true },
+            SegItem(tr("Тишина", "Silence"), Icons.Default.VolumeOff, enabled = Store.guiding) { Store.guiding = false }))
     }
     if (add) MarkDialog(null, null, null) { add = false }
+    if (pick) TargetDialog { pick = false }
 }
-
 @Composable fun MarksScreen() {
     val ctx = LocalContext.current
     var add by remember { mutableStateOf(false) }; var edit by remember { mutableStateOf<Mark?>(null) }; var q by remember { mutableStateOf("") }
@@ -253,18 +273,17 @@ fun prime(c: Context) {
     }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         VoiceField(q, { q = it }, tr("Поиск метки", "Search marks"))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button({ add = true }) { Icon(Icons.Default.Add, null); Text(tr("Метка", "Mark")) }
-            OutlinedButton({ exp.launch("trailhome.gpx") }) { Icon(Icons.Default.FileUpload, null); Text(tr("Экспорт", "Export")) }
-            OutlinedButton({ imp.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileDownload, null); Text(tr("Импорт", "Import")) }
-        }
+        Seg(listOf(
+            SegItem(tr("Метка", "Mark"), Icons.Default.Add) { add = true },
+            SegItem(tr("Экспорт", "Export"), Icons.Default.FileUpload) { exp.launch("trailhome.gpx") },
+            SegItem(tr("Импорт", "Import"), Icons.Default.FileDownload) { imp.launch(arrayOf("*/*")) }))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(Store.marks.filter { it.name.contains(q, true) || it.note.contains(q, true) }, key = { it.id }) { m ->
                 Card({ edit = m }, colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(m.name, fontWeight = FontWeight.Bold)
-                            if (m.note.isNotBlank()) Text(m.note)
+                            Text(m.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (m.note.isNotBlank()) Text(m.note.replace('\n', ' '), maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text("%.5f, %.5f".format(Locale.US, m.lat, m.lon), style = MaterialTheme.typography.labelSmall)
                             Store.loc?.let { Text(Geo.fmt(Geo.dist(it.lat, it.lon, m.lat, m.lon)), color = MaterialTheme.colorScheme.secondary) }
                         }
@@ -281,7 +300,6 @@ fun prime(c: Context) {
     if (add) MarkDialog(null, null, null) { add = false }
     edit?.let { m -> MarkDialog(m, null, null) { edit = null } }
 }
-
 @Composable fun TrackScreen() {
     var p by remember { mutableIntStateOf(0) }
     val span = longArrayOf(3600000L, 86400000L, Long.MAX_VALUE)[p]
@@ -295,9 +313,10 @@ fun prime(c: Context) {
     }
     val dur = if (pts.size > 1) pts.last().t - pts.first().t else 0L
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(tr("Час", "Hour"), tr("Сутки", "Day"), tr("Всё", "All")).forEachIndexed { i, s -> FilterChip(p == i, { p = i }, { Text(s) }) }
-        }
+        Seg(listOf(
+            SegItem(tr("Час", "Hour"), selected = p == 0) { p = 0 },
+            SegItem(tr("Сутки", "Day"), selected = p == 1) { p = 1 },
+            SegItem(tr("Всё", "All"), selected = p == 2) { p = 2 }), fill = true)
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
             Column(Modifier.padding(16.dp)) {
                 Text(tr("Пройдено: ", "Distance: ") + Geo.fmt(total), style = MaterialTheme.typography.titleLarge)
@@ -307,60 +326,53 @@ fun prime(c: Context) {
         }
         Text(if (p == 2) tr("По дням", "By day") else tr("По периодам", "By period"), style = MaterialTheme.typography.titleMedium)
         by.forEach { (k, v) -> Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { Text(k); Text(Geo.fmt(v), color = MaterialTheme.colorScheme.secondary) } }
-        OutlinedButton({ Store.track.clear(); Store.saveTrack() }) { Icon(Icons.Default.Delete, null); Text(tr("Очистить трек", "Clear track")) }
+        Seg(listOf(SegItem(tr("Очистить трек", "Clear track"), Icons.Default.Delete) { Store.track.clear(); Store.saveTrack() }))
     }
 }
+const val HELP_RU = """1. «Навигация» → «Старт»: начинается запись маршрута. Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
+2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. С этого момента голос говорит только направление, например «вправо 95 градусов» или «прямо». Когда вы на месте, голос скажет «На месте» и замолчит.
+3. Кнопка «Тишина» выключает подсказки, запись маршрута продолжается. Интервал подсказок меняется в настройках.
 
-const val HELP_RU = """1. «Навигация» → «Старт»: включатся GPS и запись трека, в точке старта создастся метка «Старт №N …» и станет целью.
-2. Идите. Приложение работает в фоне, экран можно выключить — голос называет цель, направление и расстояние.
-3. Чтобы вернуться, выберите цель: кнопка вверху экрана, значок стрелки у метки (откроется «Навигация») или кнопка «Цель» в окне метки.
-
-Направление «по часам»: 12 — прямо, 3 — вправо, 6 — назад, 9 — влево. Держите телефон горизонтально — компас точнее.
+Подсказки работают в фоне, экран можно выключить. Держите телефон горизонтально — компас точнее.
 
 Радар: верх — туда, куда повёрнут телефон; жёлтая линия — к цели; зелёная ломаная — ваш путь.
 
-Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка внизу возвращает к вашему положению. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
+Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
 
-Метки: нажмите на метку, чтобы переименовать, изменить заметку или координаты, удалить её. Значок карты показывает метку на карте. Новое окно метки сразу подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, а заметка дополняется. Экспорт и импорт — GPX.
+Метки: нажмите на метку, чтобы изменить название, заметку, координаты или удалить её. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
 
 Трек: путь за час, сутки или всё время с разбивкой по периодам и дням.
 
-Микрофон есть в каждом поле ввода. Нужен сервис голосового ввода Google.
+Меню ⋮ вверху: настройки и эта инструкция. Микрофон есть в каждом поле ввода.
 
 Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
+const val HELP_EN = """1. Navigate → Start: route recording begins. The app stays silent and only records the track. A "Start #N …" mark is created at your position.
+2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. From then on the voice says only the direction, e.g. "right 95 degrees" or "straight". When you arrive it says "Arrived" and goes quiet.
+3. "Silence" turns guidance off while the route keeps recording. The guidance interval is set in Settings.
 
-const val HELP_EN = """1. Navigate → Start: GPS and track recording begin, a "Start #N …" mark is created at your position and becomes the target.
-2. Walk. The app works in the background, you can turn the screen off — the voice announces the target, direction and distance.
-3. To go back, choose a target: the button at the top, the arrow icon on a mark (opens Navigate) or the "Target" button in the mark window.
-
-Clock directions: 12 — straight ahead, 3 — right, 6 — behind, 9 — left. Hold the phone flat for a more accurate compass.
+Guidance works in the background, you can turn the screen off. Hold the phone flat for a more accurate compass.
 
 Radar: up is where the phone points; the yellow line leads to the target; the green line is your path.
 
-Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The button at the bottom returns to your position. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
+Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
 
-Marks: tap a mark to rename it, edit the note or coordinates, or delete it. The map icon shows the mark on the map. A new mark window fills in your coordinates automatically, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
+Marks: tap a mark to edit its name, note, coordinates or delete it. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
 
 Track: your path for an hour, a day or all time, grouped by period and day.
 
-Every input field has a microphone. Google voice input is required.
+Menu ⋮ at the top: settings and this guide. Every input field has a microphone.
 
 Tips: allow location "all the time" and disable battery optimization for the app."""
-
 @Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, on: (String) -> Unit) {
     Text(title, style = MaterialTheme.typography.titleMedium)
-    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-        opts.forEachIndexed { i, (k, l) -> SegmentedButton(cur == k, { on(k) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(l, maxLines = 1) } }
-    }
+    Seg(opts.map { (k, l) -> SegItem(l, selected = cur == k) { on(k) } })
 }
-
 @Composable fun SettingsScreen() {
     val ctx = LocalContext.current
     val sp = remember { ctx.getSharedPreferences("s", 0) }
     var v by remember { mutableStateOf(sp.getBoolean("voice", true)) }
-    var iv by remember { mutableFloatStateOf(sp.getInt("interval", 30).toFloat()) }
+    var iv by remember { mutableFloatStateOf(sp.getInt("interval", 15).toFloat()) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), Arrangement.spacedBy(10.dp)) {
-        Text(tr("Настройки", "Settings"), style = MaterialTheme.typography.headlineSmall)
         Choice(tr("Язык интерфейса", "Language"), L.mode, listOf("system" to tr("Системный", "System"), "en" to "English", "ru" to "Русский")) {
             L.mode = it; sp.edit().putString("lang", it).apply()
         }
@@ -371,10 +383,29 @@ Tips: allow location "all the time" and disable battery optimization for the app
             Text(tr("Голосовые подсказки", "Voice guidance")); Switch(v, { v = it; sp.edit().putBoolean("voice", it).apply() })
         }
         Text(tr("Интервал подсказок: ", "Guidance interval: ") + "${iv.toInt()} ${tr("с", "s")}")
-        Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 10f..120f)
-        Text(tr("Инструкция", "User guide"), style = MaterialTheme.typography.headlineSmall)
-        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
-            Text(if (L.en) HELP_EN else HELP_RU, Modifier.padding(16.dp))
-        }
+        Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 5f..120f)
+        Seg(listOf(SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true }))
     }
+}
+data class SegItem(val label: String, val icon: ImageVector? = null, val selected: Boolean = false, val enabled: Boolean = true, val onClick: () -> Unit)
+
+@Composable fun Chip(o: SegItem, mod: Modifier, center: Boolean) {
+    FilterChip(o.selected, o.onClick, {
+        Text(o.label, if (center) Modifier.fillMaxWidth() else Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = if (center) TextAlign.Center else null)
+    }, mod, enabled = o.enabled,
+        leadingIcon = if (o.icon != null) { { Icon(o.icon, null, Modifier.size(18.dp)) } }
+            else if (o.selected) { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null)
+}
+
+@Composable fun Seg(opts: List<SegItem>, fill: Boolean = false) {
+    if (fill) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier.weight(1f), true) } }
+    else FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier, false) } }
+}
+@Composable fun TargetDialog(onDone: () -> Unit) {
+    AlertDialog(onDone, title = { Text(tr("Выберите цель", "Choose target")) }, text = {
+        if (Store.marks.isEmpty()) Text(tr("Меток пока нет", "No marks yet"))
+        LazyColumn { items(Store.marks.reversed(), key = { it.id }) { m ->
+            TextButton({ Store.select(m.id); onDone() }, Modifier.fillMaxWidth()) { Text(m.name, Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        } }
+    }, confirmButton = { TextButton(onDone) { Text(tr("Закрыть", "Close")) } })
 }

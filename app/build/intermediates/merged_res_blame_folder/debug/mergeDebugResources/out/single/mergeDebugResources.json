@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "app.trailhome.app-debug-41:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "app.trailhome.app-main-43:/mipmap-anydpi-v26/ic_launcher.xml"
+    },
+    {
+        "merged": "app.trailhome.app-debug-41:/drawable_ic_foreground.xml.flat",
+        "source": "app.trailhome.app-main-43:/drawable/ic_foreground.xml"
+    }
+]

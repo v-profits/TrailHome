@@ -1,0 +1,380 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+package app.trailhome
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.CustomZoomButtonsController
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
+import kotlin.math.*
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(b: Bundle?) {
+        super.onCreate(b); Store.init(this)
+        Configuration.getInstance().apply {
+            userAgentValue = packageName
+            osmdroidBasePath = File(filesDir, "osm"); osmdroidTileCache = File(filesDir, "osm/tiles")
+            tileFileSystemCacheMaxBytes = 1_000_000_000L; tileFileSystemCacheTrimBytes = 800_000_000L
+        }
+        setContent { Theme { App() } }
+    }
+}
+
+@Composable fun Theme(c: @Composable () -> Unit) {
+    val dark = when (Store.theme) { "dark" -> true; "light" -> false; else -> isSystemInDarkTheme() }
+    val s = if (dark) darkColorScheme(primary = Color(0xFF7BD88F), onPrimary = Color(0xFF00391A), secondary = Color(0xFFE6B450),
+        background = Color(0xFF0F1A14), surface = Color(0xFF0F1A14), surfaceVariant = Color(0xFF1F3327), onSurfaceVariant = Color(0xFFD5E8DA))
+    else lightColorScheme(primary = Color(0xFF1B6B3A), secondary = Color(0xFF9A6A00), background = Color(0xFFF3F8F4), surface = Color(0xFFF3F8F4),
+        surfaceVariant = Color(0xFFDDEBE0), onSurfaceVariant = Color(0xFF1B2B20))
+    MaterialTheme(colorScheme = s, content = c)
+}
+
+fun prime(c: Context) {
+    if (Store.loc != null || c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+    runCatching {
+        val lm = c.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        (lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER))
+            ?.let { Store.loc = Pt(it.latitude, it.longitude, System.currentTimeMillis()) }
+    }
+}
+
+@Composable fun App() {
+    val ctx = LocalContext.current
+    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { prime(ctx) }
+    LaunchedEffect(Unit) {
+        prime(ctx)
+        perm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS))
+    }
+    val items = listOf(tr("Навигация", "Navigate") to Icons.Default.Explore, tr("Карта", "Map") to Icons.Default.Map,
+        tr("Метки", "Marks") to Icons.Default.Place, tr("Трек", "Track") to Icons.Default.Timeline, tr("Настройки", "Settings") to Icons.Default.Settings)
+    Scaffold(bottomBar = {
+        NavigationBar { items.forEachIndexed { i, (n, ic) -> NavigationBarItem(Store.tab == i, { Store.tab = i }, { Icon(ic, n) }, label = { Text(n, maxLines = 1) }) } }
+    }) { pad ->
+        Box(Modifier.padding(pad).fillMaxSize()) {
+            when (Store.tab) { 0 -> NavScreen(); 1 -> MapScreen(); 2 -> MarksScreen(); 3 -> TrackScreen(); else -> SettingsScreen() }
+        }
+    }
+}
+
+@Composable fun VoiceField(v: String, onV: (String) -> Unit, label: String, kb: KeyboardType = KeyboardType.Text, append: Boolean = false) {
+    val ctx = LocalContext.current
+    val l = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { onV(if (append && v.isNotBlank()) "$v $it" else it) }
+    }
+    OutlinedTextField(v, onV, Modifier.fillMaxWidth(), label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = kb), shape = RoundedCornerShape(14.dp),
+        trailingIcon = {
+            IconButton({
+                val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (L.en) "en-US" else "ru-RU").putExtra(RecognizerIntent.EXTRA_PROMPT, label)
+                try { l.launch(i) } catch (e: Exception) { Toast.makeText(ctx, tr("Голосовой ввод недоступен", "Voice input unavailable"), Toast.LENGTH_SHORT).show() }
+            }) { Icon(Icons.Default.Mic, tr("Голосовой ввод", "Voice input")) }
+        })
+}
+
+@Composable fun MarkDialog(m: Mark?, lat0: Double?, lon0: Double?, onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    fun f(d: Double?) = d?.let { String.format(Locale.US, "%.6f", it) } ?: ""
+    var n by remember { mutableStateOf(m?.name ?: "") }; var note by remember { mutableStateOf(m?.note ?: "") }
+    var la by remember { mutableStateOf(f(m?.lat ?: lat0 ?: Store.loc?.lat)) }; var lo by remember { mutableStateOf(f(m?.lon ?: lon0 ?: Store.loc?.lon)) }
+    LaunchedEffect(Store.loc) { if (m == null && lat0 == null && la.isBlank()) Store.loc?.let { la = f(it.lat); lo = f(it.lon) } }
+    AlertDialog(onDone, title = { Text(if (m == null) tr("Новая метка", "New mark") else tr("Метка", "Mark")) }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            VoiceField(n, { n = it }, tr("Название", "Name"))
+            VoiceField(note, { note = it }, tr("Заметка", "Note"), append = true)
+            VoiceField(la, { la = it }, tr("Широта", "Latitude"), KeyboardType.Decimal)
+            VoiceField(lo, { lo = it }, tr("Долгота", "Longitude"), KeyboardType.Decimal)
+            if (m != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton({ Store.select(m.id); Store.tab = 0; onDone() }) { Text(tr("Цель", "Target")) }
+                OutlinedButton({ Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); onDone() }) { Icon(Icons.Default.Delete, null); Text(tr("Удалить", "Delete")) }
+            }
+        }
+    }, confirmButton = {
+        TextButton({
+            val a = la.replace(',', '.').toDoubleOrNull(); val o = lo.replace(',', '.').toDoubleOrNull()
+            if (a == null || o == null) Toast.makeText(ctx, tr("Укажите координаты", "Enter coordinates"), Toast.LENGTH_LONG).show()
+            else {
+                val name = n.ifBlank { tr("Метка", "Mark") + " ${Store.marks.size + 1}" }
+                if (m == null) Store.addMark(name, a, o, note) else Store.updateMark(m.copy(name = name, lat = a, lon = o, note = note))
+                onDone()
+            }
+        }) { Text(tr("Сохранить", "Save")) }
+    }, dismissButton = { TextButton(onDone) { Text(tr("Отмена", "Cancel")) } })
+}
+
+@Composable fun MapScreen() {
+    val ctx = LocalContext.current
+    var pending by remember { mutableStateOf<GeoPoint?>(null) }; var sel by remember { mutableStateOf<Mark?>(null) }
+    val map = remember {
+        MapView(ctx).apply {
+            setTileSource(TileSourceFactory.MAPNIK); setMultiTouchControls(true); controller.setZoom(16.0)
+            zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
+            Store.loc?.let { controller.setCenter(GeoPoint(it.lat, it.lon)) }
+        }
+    }
+    DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
+    LaunchedEffect(Store.focus) { Store.focus?.let { map.controller.setZoom(17.0); map.controller.animateTo(GeoPoint(it.lat, it.lon)); Store.focus = null } }
+    Box(Modifier.fillMaxSize()) {
+        AndroidView({ map }, Modifier.fillMaxSize(), update = { m ->
+            m.overlays.clear()
+            m.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
+                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { pending = p; return true }
+                override fun longPressHelper(p: GeoPoint): Boolean { pending = p; return true }
+            }))
+            m.overlays.add(Polyline().apply {
+                setPoints(Store.track.takeLast(3000).map { GeoPoint(it.lat, it.lon) })
+                outlinePaint.color = 0xFF2E9E57.toInt(); outlinePaint.strokeWidth = 9f
+                setOnClickListener { _, _, _ -> false }
+            })
+            Store.marks.forEach { mk ->
+                m.overlays.add(Marker(m).apply {
+                    position = GeoPoint(mk.lat, mk.lon); title = mk.name; alpha = if (mk.id == Store.targetId) 1f else .7f
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    setOnMarkerClickListener { _, _ -> sel = mk; true }
+                })
+            }
+            Store.loc?.let { me -> m.overlays.add(Marker(m).apply {
+                position = GeoPoint(me.lat, me.lon); icon = ctx.getDrawable(android.R.drawable.ic_menu_mylocation)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); setOnMarkerClickListener { _, _ -> false }
+            }) }
+            m.invalidate()
+        })
+        SmallFloatingActionButton({ Store.loc?.let { map.controller.animateTo(GeoPoint(it.lat, it.lon)) } }, Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
+            Icon(Icons.Default.MyLocation, tr("Я здесь", "My location"))
+        }
+    }
+    pending?.let { p -> MarkDialog(null, p.latitude, p.longitude) { pending = null } }
+    sel?.let { s -> MarkDialog(s, null, null) { sel = null } }
+}
+
+@Composable fun Radar(mod: Modifier) {
+    val me = Store.loc; val t = Store.target(); val az = Store.azimuth
+    val pri = MaterialTheme.colorScheme.primary; val sec = MaterialTheme.colorScheme.secondary
+    val line = MaterialTheme.colorScheme.onSurface.copy(alpha = .25f)
+    Canvas(mod) {
+        val c = center; val r = size.minDimension / 2
+        drawCircle(line, r, c, style = Stroke(2f)); drawCircle(line, r / 2, c, style = Stroke(2f))
+        drawLine(line, Offset(c.x, c.y - r), Offset(c.x, c.y + r), 2f); drawLine(line, Offset(c.x - r, c.y), Offset(c.x + r, c.y), 2f)
+        if (me == null) return@Canvas
+        val big = max(60.0, (t?.let { Geo.dist(me.lat, me.lon, it.lat, it.lon) } ?: 200.0) * 1.3)
+        val k = (r / big).toFloat(); val a = Math.toRadians(az.toDouble())
+        fun xy(la: Double, lo: Double): Offset {
+            val dx = (lo - me.lon) * 111320 * cos(Math.toRadians(me.lat)); val dn = (la - me.lat) * 110540
+            return Offset(c.x + ((dx * cos(a) - dn * sin(a)) * k).toFloat(), c.y - ((dx * sin(a) + dn * cos(a)) * k).toFloat())
+        }
+        val pts = Store.track.takeLast(500).map { xy(it.lat, it.lon) }
+        for (i in 1 until pts.size) drawLine(pri.copy(alpha = .6f), pts[i - 1], pts[i], 4f)
+        Store.marks.forEach { drawCircle(if (it.id == t?.id) sec else pri, if (it.id == t?.id) 14f else 8f, xy(it.lat, it.lon)) }
+        if (t != null) drawLine(sec, c, xy(t.lat, t.lon), 5f)
+        drawCircle(Color.White, 10f, c)
+    }
+}
+
+@Composable fun NavScreen() {
+    val ctx = LocalContext.current
+    var add by remember { mutableStateOf(false) }; var menu by remember { mutableStateOf(false) }
+    val me = Store.loc; val t = Store.target()
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), Arrangement.spacedBy(12.dp), Alignment.CenterHorizontally) {
+        Box {
+            OutlinedButton({ menu = true }, Modifier.fillMaxWidth()) { Icon(Icons.Default.Place, null); Spacer(Modifier.width(8.dp)); Text(t?.name ?: tr("Выберите цель", "Choose target")) }
+            DropdownMenu(menu, { menu = false }) { Store.marks.forEach { m -> DropdownMenuItem({ Text(m.name) }, { Store.select(m.id); menu = false }) } }
+        }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(24.dp)) {
+            Radar(Modifier.fillMaxWidth().aspectRatio(1f).padding(12.dp))
+        }
+        if (me != null && t != null) {
+            val d = Geo.dist(me.lat, me.lon, t.lat, t.lon)
+            Text(Geo.fmt(d), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+            Text(if (d < 15) tr("Вы на месте", "You are here") else Geo.clock(Geo.rel(me, t)), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.secondary)
+        } else Text(if (!Store.recording) tr("Нажмите «Старт», чтобы включить GPS", "Press Start to enable GPS") else if (me == null) tr("Ищу спутники…", "Searching for satellites…") else tr("Выберите цель", "Choose a target"))
+        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+            Button({
+                val i = Intent(ctx, NavService::class.java)
+                if (Store.recording) ctx.stopService(i) else ctx.startForegroundService(i)
+            }, Modifier.weight(1f)) { Icon(if (Store.recording) Icons.Default.Stop else Icons.Default.PlayArrow, null); Text(if (Store.recording) tr("Стоп", "Stop") else tr("Старт", "Start")) }
+            FilledTonalButton({ add = true }, Modifier.weight(1f)) { Icon(Icons.Default.MyLocation, null); Spacer(Modifier.width(6.dp)); Text(tr("Метка", "Mark")) }
+        }
+    }
+    if (add) MarkDialog(null, null, null) { add = false }
+}
+
+@Composable fun MarksScreen() {
+    val ctx = LocalContext.current
+    var add by remember { mutableStateOf(false) }; var edit by remember { mutableStateOf<Mark?>(null) }; var q by remember { mutableStateOf("") }
+    val exp = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { u ->
+        u?.let { ctx.contentResolver.openOutputStream(it)?.use { o -> o.write(Store.toGpx().toByteArray()) }; Toast.makeText(ctx, tr("Экспортировано", "Exported"), Toast.LENGTH_SHORT).show() }
+    }
+    val imp = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u ->
+        u?.let {
+            val s = ctx.contentResolver.openInputStream(it)?.bufferedReader()?.readText() ?: ""
+            Toast.makeText(ctx, tr("Импортировано меток: ", "Imported marks: ") + Store.fromGpx(s), Toast.LENGTH_SHORT).show()
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        VoiceField(q, { q = it }, tr("Поиск метки", "Search marks"))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button({ add = true }) { Icon(Icons.Default.Add, null); Text(tr("Метка", "Mark")) }
+            OutlinedButton({ exp.launch("trailhome.gpx") }) { Icon(Icons.Default.FileUpload, null); Text(tr("Экспорт", "Export")) }
+            OutlinedButton({ imp.launch(arrayOf("*/*")) }) { Icon(Icons.Default.FileDownload, null); Text(tr("Импорт", "Import")) }
+        }
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(Store.marks.filter { it.name.contains(q, true) || it.note.contains(q, true) }, key = { it.id }) { m ->
+                Card({ edit = m }, colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(m.name, fontWeight = FontWeight.Bold)
+                            if (m.note.isNotBlank()) Text(m.note)
+                            Text("%.5f, %.5f".format(Locale.US, m.lat, m.lon), style = MaterialTheme.typography.labelSmall)
+                            Store.loc?.let { Text(Geo.fmt(Geo.dist(it.lat, it.lon, m.lat, m.lon)), color = MaterialTheme.colorScheme.secondary) }
+                        }
+                        IconButton({ Store.focus = m; Store.tab = 1 }) { Icon(Icons.Default.Map, tr("На карте", "On map")) }
+                        IconButton({
+                            Store.select(m.id); Store.tab = 0
+                            Toast.makeText(ctx, tr("Цель: ", "Target: ") + m.name, Toast.LENGTH_SHORT).show()
+                        }) { Icon(Icons.Default.Navigation, tr("Цель", "Target"), tint = if (m.id == Store.targetId) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
+                }
+            }
+        }
+    }
+    if (add) MarkDialog(null, null, null) { add = false }
+    edit?.let { m -> MarkDialog(m, null, null) { edit = null } }
+}
+
+@Composable fun TrackScreen() {
+    var p by remember { mutableIntStateOf(0) }
+    val span = longArrayOf(3600000L, 86400000L, Long.MAX_VALUE)[p]
+    val now = System.currentTimeMillis()
+    val pts = Store.track.filter { now - it.t <= span }
+    val f = SimpleDateFormat(if (p == 2) "dd.MM" else if (p == 1) "dd.MM HH:00" else "HH:mm", Locale.getDefault())
+    var total = 0.0; val by = linkedMapOf<String, Double>()
+    for (i in 1 until pts.size) {
+        val d = Geo.dist(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon); total += d
+        by.merge(f.format(Date(pts[i].t)).let { if (p == 0) it.dropLast(1) + "0" else it }, d, Double::plus)
+    }
+    val dur = if (pts.size > 1) pts.last().t - pts.first().t else 0L
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(tr("Час", "Hour"), tr("Сутки", "Day"), tr("Всё", "All")).forEachIndexed { i, s -> FilterChip(p == i, { p = i }, { Text(s) }) }
+        }
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text(tr("Пройдено: ", "Distance: ") + Geo.fmt(total), style = MaterialTheme.typography.titleLarge)
+                Text(tr("Время: ", "Time: ") + "${dur / 3600000} ${tr("ч", "h")} ${dur / 60000 % 60} ${tr("мин", "min")} • ${tr("точек", "points")}: ${pts.size}")
+                if (dur > 0) Text(tr("Средняя скорость: ", "Average speed: ") + "%.1f ${tr("км/ч", "km/h")}".format(total / (dur / 1000.0) * 3.6))
+            }
+        }
+        Text(if (p == 2) tr("По дням", "By day") else tr("По периодам", "By period"), style = MaterialTheme.typography.titleMedium)
+        by.forEach { (k, v) -> Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { Text(k); Text(Geo.fmt(v), color = MaterialTheme.colorScheme.secondary) } }
+        OutlinedButton({ Store.track.clear(); Store.saveTrack() }) { Icon(Icons.Default.Delete, null); Text(tr("Очистить трек", "Clear track")) }
+    }
+}
+
+const val HELP_RU = """1. «Навигация» → «Старт»: включатся GPS и запись трека, в точке старта создастся метка «Старт №N …» и станет целью.
+2. Идите. Приложение работает в фоне, экран можно выключить — голос называет цель, направление и расстояние.
+3. Чтобы вернуться, выберите цель: кнопка вверху экрана, значок стрелки у метки (откроется «Навигация») или кнопка «Цель» в окне метки.
+
+Направление «по часам»: 12 — прямо, 3 — вправо, 6 — назад, 9 — влево. Держите телефон горизонтально — компас точнее.
+
+Радар: верх — туда, куда повёрнут телефон; жёлтая линия — к цели; зелёная ломаная — ваш путь.
+
+Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка внизу возвращает к вашему положению. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
+
+Метки: нажмите на метку, чтобы переименовать, изменить заметку или координаты, удалить её. Значок карты показывает метку на карте. Новое окно метки сразу подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, а заметка дополняется. Экспорт и импорт — GPX.
+
+Трек: путь за час, сутки или всё время с разбивкой по периодам и дням.
+
+Микрофон есть в каждом поле ввода. Нужен сервис голосового ввода Google.
+
+Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
+
+const val HELP_EN = """1. Navigate → Start: GPS and track recording begin, a "Start #N …" mark is created at your position and becomes the target.
+2. Walk. The app works in the background, you can turn the screen off — the voice announces the target, direction and distance.
+3. To go back, choose a target: the button at the top, the arrow icon on a mark (opens Navigate) or the "Target" button in the mark window.
+
+Clock directions: 12 — straight ahead, 3 — right, 6 — behind, 9 — left. Hold the phone flat for a more accurate compass.
+
+Radar: up is where the phone points; the yellow line leads to the target; the green line is your path.
+
+Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The button at the bottom returns to your position. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
+
+Marks: tap a mark to rename it, edit the note or coordinates, or delete it. The map icon shows the mark on the map. A new mark window fills in your coordinates automatically, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
+
+Track: your path for an hour, a day or all time, grouped by period and day.
+
+Every input field has a microphone. Google voice input is required.
+
+Tips: allow location "all the time" and disable battery optimization for the app."""
+
+@Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, on: (String) -> Unit) {
+    Text(title, style = MaterialTheme.typography.titleMedium)
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        opts.forEachIndexed { i, (k, l) -> SegmentedButton(cur == k, { on(k) }, SegmentedButtonDefaults.itemShape(i, opts.size)) { Text(l, maxLines = 1) } }
+    }
+}
+
+@Composable fun SettingsScreen() {
+    val ctx = LocalContext.current
+    val sp = remember { ctx.getSharedPreferences("s", 0) }
+    var v by remember { mutableStateOf(sp.getBoolean("voice", true)) }
+    var iv by remember { mutableFloatStateOf(sp.getInt("interval", 30).toFloat()) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), Arrangement.spacedBy(10.dp)) {
+        Text(tr("Настройки", "Settings"), style = MaterialTheme.typography.headlineSmall)
+        Choice(tr("Язык интерфейса", "Language"), L.mode, listOf("system" to tr("Системный", "System"), "en" to "English", "ru" to "Русский")) {
+            L.mode = it; sp.edit().putString("lang", it).apply()
+        }
+        Choice(tr("Тема", "Theme"), Store.theme, listOf("system" to tr("Системная", "System"), "light" to tr("Светлая", "Light"), "dark" to tr("Тёмная", "Dark"))) {
+            Store.theme = it; sp.edit().putString("theme", it).apply()
+        }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text(tr("Голосовые подсказки", "Voice guidance")); Switch(v, { v = it; sp.edit().putBoolean("voice", it).apply() })
+        }
+        Text(tr("Интервал подсказок: ", "Guidance interval: ") + "${iv.toInt()} ${tr("с", "s")}")
+        Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 10f..120f)
+        Text(tr("Инструкция", "User guide"), style = MaterialTheme.typography.headlineSmall)
+        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
+            Text(if (L.en) HELP_EN else HELP_RU, Modifier.padding(16.dp))
+        }
+    }
+}

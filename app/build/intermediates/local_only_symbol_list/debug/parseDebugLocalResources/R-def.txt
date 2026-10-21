@@ -1,0 +1,5 @@
+R_DEF: Internal format may change without notice
+local
+color ic_bg
+drawable ic_foreground
+mipmap ic_launcher

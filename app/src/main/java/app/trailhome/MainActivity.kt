@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Bundle
 import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -163,6 +164,7 @@ fun prime(c: Context) {
 @Composable fun MapScreen() {
     val ctx = LocalContext.current
     var pending by remember { mutableStateOf<GeoPoint?>(null) }; var sel by remember { mutableStateOf<Mark?>(null) }
+    val ic = remember { MapIcons(ctx) }
     val map = remember {
         MapView(ctx).apply {
             setTileSource(TileSourceFactory.MAPNIK); setMultiTouchControls(true); controller.setZoom(16.0)
@@ -179,20 +181,19 @@ fun prime(c: Context) {
                 override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { pending = p; return true }
                 override fun longPressHelper(p: GeoPoint): Boolean { pending = p; return true }
             }))
-            m.overlays.add(Polyline().apply {
-                setPoints(Store.track.takeLast(3000).map { GeoPoint(it.lat, it.lon) })
-                outlinePaint.color = 0xFF2E9E57.toInt(); outlinePaint.strokeWidth = 9f
-                setOnClickListener { _, _, _ -> false }
-            })
-            Store.marks.forEach { mk ->
+            val pts = Store.track.takeLast(3000).map { GeoPoint(it.lat, it.lon) }
+            m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = 0xFFFFFFFF.toInt(); outlinePaint.strokeWidth = 17f; setOnClickListener { _, _, _ -> false } })
+            m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = 0xFFD81B60.toInt(); outlinePaint.strokeWidth = 9f; setOnClickListener { _, _, _ -> false } })
+            Store.marks.sortedBy { it.id == Store.targetId }.forEach { mk ->
+                val start = mk.id == Store.startId || mk.name.startsWith("Старт") || mk.name.startsWith("Start")
                 m.overlays.add(Marker(m).apply {
-                    position = GeoPoint(mk.lat, mk.lon); title = mk.name; alpha = if (mk.id == Store.targetId) 1f else .7f
+                    position = GeoPoint(mk.lat, mk.lon); title = mk.name; icon = ic.pin(start, mk.id == Store.targetId)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                     setOnMarkerClickListener { _, _ -> sel = mk; true }
                 })
             }
             Store.loc?.let { me -> m.overlays.add(Marker(m).apply {
-                position = GeoPoint(me.lat, me.lon); icon = ctx.getDrawable(android.R.drawable.ic_menu_mylocation)
+                position = GeoPoint(me.lat, me.lon); icon = ic.me
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); setOnMarkerClickListener { _, _ -> false }
             }) }
             m.invalidate()
@@ -204,7 +205,6 @@ fun prime(c: Context) {
     pending?.let { p -> MarkDialog(null, p.latitude, p.longitude) { pending = null } }
     sel?.let { s -> MarkDialog(s, null, null) { sel = null } }
 }
-
 @Composable fun Radar(mod: Modifier) {
     val me = Store.loc; val t = Store.target(); val az = Store.azimuth
     val pri = MaterialTheme.colorScheme.primary; val sec = MaterialTheme.colorScheme.secondary
@@ -330,14 +330,14 @@ fun prime(c: Context) {
     }
 }
 const val HELP_RU = """1. «Навигация» → «Старт»: начинается запись маршрута. Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
-2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. С этого момента голос говорит только направление, например «вправо 95 градусов» или «прямо». Когда вы на месте, голос скажет «На месте» и замолчит.
+2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. С этого момента голос говорит только направление, например «вправо 95°» или «прямо». Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
 3. Кнопка «Тишина» выключает подсказки, запись маршрута продолжается. Интервал подсказок меняется в настройках.
 
 Подсказки работают в фоне, экран можно выключить. Держите телефон горизонтально — компас точнее.
 
 Радар: верх — туда, куда повёрнут телефон; жёлтая линия — к цели; зелёная ломаная — ваш путь.
 
-Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
+Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
 
 Метки: нажмите на метку, чтобы изменить название, заметку, координаты или удалить её. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
 
@@ -347,14 +347,14 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 
 Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
 const val HELP_EN = """1. Navigate → Start: route recording begins. The app stays silent and only records the track. A "Start #N …" mark is created at your position.
-2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. From then on the voice says only the direction, e.g. "right 95 degrees" or "straight". When you arrive it says "Arrived" and goes quiet.
+2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. From then on the voice says only the direction, e.g. "right 95°" or "straight". When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
 3. "Silence" turns guidance off while the route keeps recording. The guidance interval is set in Settings.
 
 Guidance works in the background, you can turn the screen off. Hold the phone flat for a more accurate compass.
 
 Radar: up is where the phone points; the yellow line leads to the target; the green line is your path.
 
-Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
+Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
 
 Marks: tap a mark to edit its name, note, coordinates or delete it. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
 
@@ -372,6 +372,13 @@ Tips: allow location "all the time" and disable battery optimization for the app
     val sp = remember { ctx.getSharedPreferences("s", 0) }
     var v by remember { mutableStateOf(sp.getBoolean("voice", true)) }
     var iv by remember { mutableFloatStateOf(sp.getInt("interval", 15).toFloat()) }
+    var vname by remember { mutableStateOf("") }
+    var tts by remember { mutableStateOf<TextToSpeech?>(null) }
+    DisposableEffect(L.en) {
+        var t: TextToSpeech? = null
+        t = TextToSpeech(ctx) { if (it == TextToSpeech.SUCCESS) t?.let { x -> Speaker.pick(x, ctx); vname = x.voice?.name ?: ""; tts = x } }
+        onDispose { t?.shutdown(); tts = null }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), Arrangement.spacedBy(10.dp)) {
         Choice(tr("Язык интерфейса", "Language"), L.mode, listOf("system" to tr("Системный", "System"), "en" to "English", "ru" to "Русский")) {
             L.mode = it; sp.edit().putString("lang", it).apply()
@@ -384,6 +391,10 @@ Tips: allow location "all the time" and disable battery optimization for the app
         }
         Text(tr("Интервал подсказок: ", "Guidance interval: ") + "${iv.toInt()} ${tr("с", "s")}")
         Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 5f..120f)
+        Text(tr("Голос: ", "Voice: ") + vname.ifBlank { "—" }, style = MaterialTheme.typography.labelMedium)
+        Seg(listOf(
+            SegItem(tr("Проверить голос", "Test voice"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },
+            SegItem(tr("Другой голос", "Next voice"), Icons.Default.RecordVoiceOver, enabled = tts != null) { tts?.let { x -> vname = Speaker.next(x, ctx); Speaker.sample(x) } }))
         Seg(listOf(SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true }))
     }
 }

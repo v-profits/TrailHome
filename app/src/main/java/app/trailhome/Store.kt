@@ -124,5 +124,5 @@ fun turnText(rel: Double): String {
     val a = if (rel > 180) 360 - rel else rel
     val n = (a / 5).roundToInt() * 5
     if (n == 0) return tr("прямо", "straight")
-    return (if (rel <= 180) tr("вправо", "right") else tr("влево", "left")) + " $n " + tr("градусов", "degrees")
+    return (if (rel <= 180) tr("вправо", "right") else tr("влево", "left")) + " $n°"
 }

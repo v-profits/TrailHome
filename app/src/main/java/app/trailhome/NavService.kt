@@ -11,6 +11,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.IBinder
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.ServiceCompat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -40,7 +41,16 @@ class NavService : Service(), LocationListener, SensorEventListener {
         Store.init(this)
         Store.recording = true
         h.post(tick)
-        tts = TextToSpeech(this) { if (it == TextToSpeech.SUCCESS) tts?.language = if (L.en) Locale.US else Locale("ru") }
+        tts = TextToSpeech(this) {
+            if (it == TextToSpeech.SUCCESS) tts?.let { t ->
+                Speaker.pick(t, this)
+                t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(id: String?) {}
+                    override fun onDone(id: String?) { if (id == "arrive") h.post { stopSelf() } }
+                    @Deprecated("Deprecated in Java") override fun onError(id: String?) { if (id == "arrive") h.post { stopSelf() } }
+                })
+            }
+        }
         try {
             (getSystemService(LOCATION_SERVICE) as LocationManager).requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 2f, this)
         } catch (e: SecurityException) { stopSelf() }
@@ -64,15 +74,23 @@ class NavService : Service(), LocationListener, SensorEventListener {
 
     private fun speak() {
         val sp = getSharedPreferences("s", MODE_PRIVATE)
-        if (!Store.guiding || !sp.getBoolean("voice", true)) { lastSpeak = 0; return }
+        if (!Store.guiding) { lastSpeak = 0; return }
         val t = Store.target() ?: return
         val me = Store.loc ?: return
+        val voice = sp.getBoolean("voice", true)
+        if (Geo.dist(me.lat, me.lon, t.lat, t.lon) < 15) {
+            Store.guiding = false
+            // у стартовой точки запись останавливается сама (если вы от неё отходили)
+            val home = t.id == Store.startId && Store.track.any { Geo.dist(it.lat, it.lon, t.lat, t.lon) > 50 }
+            if (voice) tts?.speak(tr("На месте", "Arrived"), TextToSpeech.QUEUE_FLUSH, null, if (home) "arrive" else "n")
+            if (home) h.postDelayed({ stopSelf() }, if (voice) 6000L else 0L)
+            return
+        }
+        if (!voice) return
         val now = System.currentTimeMillis()
         if (now - lastSpeak < sp.getInt("interval", 15) * 1000L) return
         lastSpeak = now
-        val arrived = Geo.dist(me.lat, me.lon, t.lat, t.lon) < 15
-        tts?.speak(if (arrived) tr("На месте", "Arrived") else turnText(Geo.rel(me, t)), TextToSpeech.QUEUE_FLUSH, null, "n")
-        if (arrived) Store.guiding = false
+        tts?.speak(turnText(Geo.rel(me, t)), TextToSpeech.QUEUE_FLUSH, null, "n")
     }
 
     override fun onSensorChanged(e: SensorEvent) {

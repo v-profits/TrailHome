@@ -36,5 +36,5 @@ object Speaker {
 
     fun label(v: Voice, i: Int) = "${i + 1}. " + v.name + " · " + (if (v.isNetworkConnectionRequired) tr("онлайн", "online") else tr("офлайн", "offline"))
 
-    fun sample(t: TextToSpeech) { t.speak(tr("Вправо 95°", "Right 95°"), TextToSpeech.QUEUE_FLUSH, null, "t") }
+    fun sample(t: TextToSpeech) { t.speak(turnSpeech(30.0, 450.0), TextToSpeech.QUEUE_FLUSH, null, "t") }
 }

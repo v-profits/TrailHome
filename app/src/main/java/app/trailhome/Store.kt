@@ -24,6 +24,9 @@ object Store {
     var sp: android.content.SharedPreferences? = null
     var guiding by mutableStateOf(false)
     var compass by mutableStateOf(true)
+    var satVisible by mutableIntStateOf(0)
+    var satUsed by mutableIntStateOf(0)
+    fun switchCompass(on: Boolean) { compass = on; sp?.edit()?.putBoolean("compass", on)?.apply() }
     var provider by mutableStateOf("auto")
     var mapType by mutableStateOf("normal")
     // Направление движения: по компасу или по перемещению за интервал (секунды из настроек)
@@ -130,9 +133,30 @@ object L {
 }
 fun tr(ru: String, en: String) = if (L.en) en else ru
 
+private fun decl(n: Int, one: String, few: String, many: String) = if (n % 100 in 11..14) many else when (n % 10) { 1 -> one; 2, 3, 4 -> few; else -> many }
+
+// Подсказка простыми словами: >135° — развернитесь, 45–135° — поверните, <45° — держитесь правее/левее на N°
 fun turnText(rel: Double): String {
-    val a = if (rel > 180) 360 - rel else rel
-    val n = (a / 5).roundToInt() * 5
-    if (n == 0) return tr("прямо", "straight")
-    return (if (rel <= 180) tr("вправо", "right") else tr("влево", "left")) + " $n°"
+    val d = if (rel > 180) 360 - rel else rel
+    val n = (d / 5).roundToInt() * 5
+    val right = rel <= 180
+    return when {
+        d > 135 -> tr("Развернитесь", "Turn around")
+        d > 45 -> if (right) tr("Поверните направо", "Turn right") else tr("Поверните налево", "Turn left")
+        d < 10 -> tr("Идите прямо", "Go straight")
+        else -> (if (right) tr("Держитесь правее", "Bear right") else tr("Держитесь левее", "Bear left")) + tr(" на ", " by ") + "$n°"
+    }
+}
+
+// То же для голоса: слова вместо символов и расстояние до цели
+fun turnSpeech(rel: Double, dist: Double): String {
+    val step = if (dist < 100) 5 else 10
+    val m = max(step, (dist / step).roundToInt() * step)
+    val far = if (dist < 1000) "$m " + (if (L.en) "meters" else decl(m, "метр", "метра", "метров"))
+    else {
+        val k = (dist / 100).roundToInt() / 10.0
+        val ks = if (k == floor(k)) "${k.toInt()}" else String.format(Locale.US, "%.1f", k)
+        ks + " " + (if (L.en) "kilometers" else if (k == floor(k)) decl(k.toInt(), "километр", "километра", "километров") else "километра")
+    }
+    return turnText(rel).replace("°", " " + tr("градусов", "degrees")) + ", " + tr("до цели ", "to the target ") + (if (L.en) far else far.replace('.', ','))
 }

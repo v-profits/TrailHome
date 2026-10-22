@@ -6,6 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
@@ -57,7 +61,20 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.*
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), SensorEventListener {
+    // Компас работает, пока приложение на экране (в фоне его ведёт сервис)
+    override fun onResume() {
+        super.onResume()
+        val sm = getSystemService(SENSOR_SERVICE) as SensorManager
+        sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR), SensorManager.SENSOR_DELAY_UI)
+    }
+    override fun onPause() { super.onPause(); (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(this) }
+    override fun onSensorChanged(e: SensorEvent) {
+        val r = FloatArray(9); val o = FloatArray(3)
+        SensorManager.getRotationMatrixFromVector(r, e.values); SensorManager.getOrientation(r, o)
+        Store.azimuth = ((Math.toDegrees(o[0].toDouble()) + 360) % 360).toFloat()
+    }
+    override fun onAccuracyChanged(s: Sensor?, a: Int) {}
     override fun onCreate(b: Bundle?) {
         super.onCreate(b); Store.init(this)
         Configuration.getInstance().apply {
@@ -195,6 +212,7 @@ fun prime(c: Context) {
     DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
     LaunchedEffect(key) { Store.loc?.let { map.controller.setCenter(GeoPoint(Proj.f(it.lat), it.lon)) } }
     LaunchedEffect(Store.focus) { Store.focus?.let { map.controller.setZoom(17.0); map.controller.animateTo(GeoPoint(Proj.f(it.lat), it.lon)); Store.focus = null } }
+    LaunchedEffect(map) { snapshotFlow { if (Store.compass) -Store.azimuth else 0f }.collect { if (abs(map.mapOrientation - it) > 2f) map.mapOrientation = it } }
     Box(Modifier.fillMaxSize()) {
         AndroidView({ map }, Modifier.fillMaxSize(), update = { m ->
             if (m.tileProvider.tileSource.name() != base.name()) m.setTileSource(base)
@@ -221,7 +239,12 @@ fun prime(c: Context) {
             }) }
             m.invalidate()
         })
+        SmallFloatingActionButton({ Store.switchCompass(!Store.compass) }, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 128.dp),
+            containerColor = if (Store.compass) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant) { Icon(Icons.Default.Explore, tr("Компас", "Compass")) }
         SmallFloatingActionButton({ opts = true }, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 72.dp)) { Icon(Icons.Default.Layers, tr("Слои", "Layers")) }
+        Surface(Modifier.align(Alignment.TopStart).padding(8.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .85f)) {
+            Text(satText(), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
+        }
         SmallFloatingActionButton({ Store.loc?.let { map.controller.animateTo(GeoPoint(Proj.f(it.lat), it.lon)) } }, Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
             Icon(Icons.Default.MyLocation, tr("Я здесь", "My location"))
         }
@@ -240,6 +263,8 @@ fun prime(c: Context) {
         val c = center; val r = size.minDimension / 2
         drawCircle(line, r, c, style = Stroke(2f)); drawCircle(line, r / 2, c, style = Stroke(2f))
         drawLine(line, Offset(c.x, c.y - r), Offset(c.x, c.y + r), 2f); drawLine(line, Offset(c.x - r, c.y), Offset(c.x + r, c.y), 2f)
+        val na = Math.toRadians(-az.toDouble())   // красная точка — север
+        drawCircle(Color(0xFFE53935), 9f, Offset(c.x + r * .9f * sin(na).toFloat(), c.y - r * .9f * cos(na).toFloat()))
         if (me == null) return@Canvas
         val big = max(60.0, (t?.let { Geo.dist(me.lat, me.lon, it.lat, it.lon) } ?: 200.0) * 1.3)
         val k = (r / big).toFloat(); val a = Math.toRadians(az.toDouble())
@@ -263,6 +288,7 @@ fun prime(c: Context) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(24.dp)) {
             Radar(Modifier.fillMaxWidth().aspectRatio(1f).padding(12.dp))
         }
+        Text(satText(), style = MaterialTheme.typography.labelMedium)
         if (me != null && t != null) {
             val d = Geo.dist(me.lat, me.lon, t.lat, t.lon)
             Text(if (d < 15) tr("На месте", "Arrived") else Store.curHeading(me)?.let { turnText(Geo.rel(me, t, it)) } ?: tr("Идите — определю направление", "Keep moving to get a direction"), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
@@ -277,7 +303,8 @@ fun prime(c: Context) {
                 val i = Intent(ctx, NavService::class.java)
                 if (Store.recording) ctx.stopService(i) else ctx.startForegroundService(i)
             },
-            SegItem(tr("Метка", "Mark"), Icons.Default.MyLocation) { add = true }))
+            SegItem(tr("Метка", "Mark"), Icons.Default.MyLocation) { add = true },
+            SegItem(tr("Компас", "Compass"), Icons.Default.Explore, selected = Store.compass) { Store.switchCompass(!Store.compass) }))
         Seg(listOf(
             SegItem(tr("К старту", "To start"), Icons.Default.Home, enabled = st != null) { Store.select(st!!.id) },
             SegItem(tr("Цель", "Target"), Icons.Default.Place) { pick = true },
@@ -357,12 +384,14 @@ fun prime(c: Context) {
     }
 }
 const val HELP_RU = """1. «Навигация» → «Старт»: начинается запись маршрута. Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
-2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. С этого момента голос говорит только направление, например «вправо 95°» или «прямо». Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
+2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. С этого момента голос подсказывает по-простому: «Развернитесь», «Поверните направо», «Держитесь правее на 30 градусов» — и называет расстояние до цели. Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
 3. Кнопка «Тишина» выключает подсказки (запись маршрута продолжается), кнопка «Голос» включает их снова. Интервал подсказок меняется в настройках.
 
 Подсказки работают в фоне, экран можно выключить. Держите телефон горизонтально — компас точнее.
 
-Компас (в настройках): включён — направление по компасу телефона; выключен — по вашему перемещению за интервал (нужно идти). Голос говорит через заданное число секунд или когда вы сместились на заданное число метров.
+Компас (кнопка на «Навигации» и «Карте», а также в настройках): включён — направление по компасу телефона, карта и радар поворачиваются вслед за телефоном; выключен — по вашему перемещению за интервал (нужно идти). Голос говорит через заданное число секунд или когда вы сместились на заданное число метров.
+
+Спутники: «видно» — сколько спутников над горизонтом, «используется» — сколько участвует в определении места (появляются после «Старт»).
 
 Радар: верх — туда, куда повёрнут телефон; жёлтая линия — к цели; зелёная ломаная — ваш путь.
 
@@ -376,12 +405,14 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 
 Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
 const val HELP_EN = """1. Navigate → Start: route recording begins. The app stays silent and only records the track. A "Start #N …" mark is created at your position.
-2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. From then on the voice says only the direction, e.g. "right 95°" or "straight". When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
+2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. From then on the voice gives plain instructions: "Turn around", "Turn right", "Bear right by 30 degrees" — and the distance to the target. When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
 3. "Silence" turns guidance off while the route keeps recording; "Voice" turns it back on. The guidance interval is set in Settings.
 
 Guidance works in the background, you can turn the screen off. Hold the phone flat for a more accurate compass.
 
-Compass (Settings): on — direction from the phone compass; off — from your movement over the interval (keep walking). The voice speaks after the set number of seconds or when you have moved the set number of meters.
+Compass (button on Navigate and Map, also in Settings): on — direction from the phone compass, the map and radar turn with the phone; off — from your movement over the interval (keep walking). The voice speaks after the set number of seconds or when you have moved the set number of meters.
+
+Satellites: "visible" — how many are above the horizon, "used" — how many take part in your position fix (shown after Start).
 
 Radar: up is where the phone points; the yellow line leads to the target; the green line is your path.
 
@@ -474,3 +505,6 @@ data class SegItem(val label: String, val icon: ImageVector? = null, val selecte
         } }
     }, confirmButton = { TextButton(onDone) { Text(tr("Закрыть", "Close")) } })
 }
+
+fun satText() = if (Store.recording) tr("Спутники: видно ${Store.satVisible}, используется ${Store.satUsed}", "Satellites: ${Store.satVisible} visible, ${Store.satUsed} used")
+else tr("GPS выключен — нажмите «Старт»", "GPS off — press Start")

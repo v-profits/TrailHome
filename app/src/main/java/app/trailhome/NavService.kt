@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.hardware.*
+import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -20,6 +21,13 @@ class NavService : Service(), LocationListener, SensorEventListener {
     private var tts: TextToSpeech? = null
     private var lastSpeak = 0L
     private var lastPos: Pt? = null
+    private val gnss = object : GnssStatus.Callback() {
+        override fun onSatelliteStatusChanged(s: GnssStatus) {
+            var u = 0
+            for (i in 0 until s.satelliteCount) if (s.usedInFix(i)) u++
+            Store.satVisible = s.satelliteCount; Store.satUsed = u
+        }
+    }
     private var first = true
     private var started = false
     private val h = android.os.Handler(android.os.Looper.getMainLooper())
@@ -55,6 +63,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         try {
             (getSystemService(LOCATION_SERVICE) as LocationManager).requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 2f, this)
         } catch (e: SecurityException) { stopSelf() }
+        try { (getSystemService(LOCATION_SERVICE) as LocationManager).registerGnssStatusCallback(gnss, h) } catch (e: SecurityException) {}
         val sm = getSystemService(SENSOR_SERVICE) as SensorManager
         sm.registerListener(this, sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR), SensorManager.SENSOR_DELAY_UI)
         return START_STICKY
@@ -95,7 +104,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         if (!due) return
         val hd = Store.curHeading(me) ?: return
         lastSpeak = now; lastPos = me
-        tts?.speak(turnText(Geo.rel(me, t, hd)), TextToSpeech.QUEUE_FLUSH, null, "n")
+        tts?.speak(turnSpeech(Geo.rel(me, t, hd), Geo.dist(me.lat, me.lon, t.lat, t.lon)), TextToSpeech.QUEUE_FLUSH, null, "n")
     }
 
     override fun onSensorChanged(e: SensorEvent) {
@@ -108,6 +117,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
 
     override fun onDestroy() {
         (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(this)
+        (getSystemService(LOCATION_SERVICE) as LocationManager).unregisterGnssStatusCallback(gnss); Store.satVisible = 0; Store.satUsed = 0
         (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(this)
         h.removeCallbacks(tick); tts?.shutdown(); Store.saveTrack(); Store.recording = false
         super.onDestroy()

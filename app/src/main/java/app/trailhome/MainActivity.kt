@@ -44,7 +44,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.MapEventsOverlay
@@ -162,52 +164,76 @@ fun prime(c: Context) {
         }) { Text(tr("Сохранить", "Save")) }
     }, dismissButton = { TextButton(onDone) { Text(tr("Отмена", "Cancel")) } })
 }
+@Composable fun MapChoices() {
+    Choice(tr("Карта", "Map"), Store.provider, listOf("auto" to tr("Авто", "Auto"), "yandex" to tr("Яндекс", "Yandex"), "google" to "Google", "osm" to "OSM")) {
+        Store.provider = it; Store.sp?.edit()?.putString("provider", it)?.apply()
+    }
+    Choice(tr("Тип карты", "Map type"), Store.mapType, listOf("normal" to tr("Обычная", "Normal"), "satellite" to tr("Спутниковая", "Satellite"),
+        "hybrid" to tr("Гибридная", "Hybrid"), "terrain" to tr("Ландшафт", "Terrain"))) {
+        Store.mapType = it; Store.sp?.edit()?.putString("maptype", it)?.apply()
+    }
+    Text(tr("Сейчас: ", "Now: ") + when (MapSources.provider()) { "yandex" -> tr("Яндекс", "Yandex"); "google" -> "Google"; else -> "OSM" } +
+        if (MapSources.provider() == "yandex" && Store.mapType == "terrain") tr(" (ландшафта нет, показана обычная)", " (no terrain layer, showing standard)") else "",
+        style = MaterialTheme.typography.labelMedium)
+}
+
 @Composable fun MapScreen() {
     val ctx = LocalContext.current
-    var pending by remember { mutableStateOf<GeoPoint?>(null) }; var sel by remember { mutableStateOf<Mark?>(null) }
+    var pending by remember { mutableStateOf<GeoPoint?>(null) }; var sel by remember { mutableStateOf<Mark?>(null) }; var opts by remember { mutableStateOf(false) }
     val ic = remember { MapIcons(ctx) }
+    val key = MapSources.key()
+    val base = remember(key) { MapSources.base(key) }
+    val lp = remember(key) { MapSources.overlaySource(key)?.let { MapTileProviderBasic(ctx, it) } }
+    val labels = remember(key) { lp?.let { p -> TilesOverlay(p, ctx).apply { loadingBackgroundColor = 0; loadingLineColor = 0 } } }
+    DisposableEffect(key) { onDispose { lp?.detach() } }
     val map = remember {
         MapView(ctx).apply {
-            setTileSource(TileSourceFactory.MAPNIK); setMultiTouchControls(true); controller.setZoom(16.0)
+            setMultiTouchControls(true); controller.setZoom(16.0)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
-            Store.loc?.let { controller.setCenter(GeoPoint(it.lat, it.lon)) }
         }
     }
     DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
-    LaunchedEffect(Store.focus) { Store.focus?.let { map.controller.setZoom(17.0); map.controller.animateTo(GeoPoint(it.lat, it.lon)); Store.focus = null } }
+    LaunchedEffect(key) { Store.loc?.let { map.controller.setCenter(GeoPoint(Proj.f(it.lat), it.lon)) } }
+    LaunchedEffect(Store.focus) { Store.focus?.let { map.controller.setZoom(17.0); map.controller.animateTo(GeoPoint(Proj.f(it.lat), it.lon)); Store.focus = null } }
     Box(Modifier.fillMaxSize()) {
         AndroidView({ map }, Modifier.fillMaxSize(), update = { m ->
+            if (m.tileProvider.tileSource.name() != base.name()) m.setTileSource(base)
             m.overlays.clear()
+            labels?.let { m.overlays.add(it) }
             m.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { pending = p; return true }
-                override fun longPressHelper(p: GeoPoint): Boolean { pending = p; return true }
+                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { pending = GeoPoint(Proj.inv(p.latitude), p.longitude); return true }
+                override fun longPressHelper(p: GeoPoint): Boolean { pending = GeoPoint(Proj.inv(p.latitude), p.longitude); return true }
             }))
-            val pts = Store.track.takeLast(3000).map { GeoPoint(it.lat, it.lon) }
+            val pts = Store.track.takeLast(3000).map { GeoPoint(Proj.f(it.lat), it.lon) }
             m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = 0xFFFFFFFF.toInt(); outlinePaint.strokeWidth = 17f; setOnClickListener { _, _, _ -> false } })
             m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = 0xFFD81B60.toInt(); outlinePaint.strokeWidth = 9f; setOnClickListener { _, _, _ -> false } })
             Store.marks.sortedBy { it.id == Store.targetId }.forEach { mk ->
                 val start = mk.id == Store.startId || mk.name.startsWith("Старт") || mk.name.startsWith("Start")
                 m.overlays.add(Marker(m).apply {
-                    position = GeoPoint(mk.lat, mk.lon); title = mk.name; icon = ic.pin(start, mk.id == Store.targetId)
+                    position = GeoPoint(Proj.f(mk.lat), mk.lon); title = mk.name; icon = ic.pin(start, mk.id == Store.targetId)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                     setOnMarkerClickListener { _, _ -> sel = mk; true }
                 })
             }
             Store.loc?.let { me -> m.overlays.add(Marker(m).apply {
-                position = GeoPoint(me.lat, me.lon); icon = ic.me
+                position = GeoPoint(Proj.f(me.lat), me.lon); icon = ic.me
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); setOnMarkerClickListener { _, _ -> false }
             }) }
             m.invalidate()
         })
-        SmallFloatingActionButton({ Store.loc?.let { map.controller.animateTo(GeoPoint(it.lat, it.lon)) } }, Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
+        SmallFloatingActionButton({ opts = true }, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 72.dp)) { Icon(Icons.Default.Layers, tr("Слои", "Layers")) }
+        SmallFloatingActionButton({ Store.loc?.let { map.controller.animateTo(GeoPoint(Proj.f(it.lat), it.lon)) } }, Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
             Icon(Icons.Default.MyLocation, tr("Я здесь", "My location"))
         }
     }
+    if (opts) AlertDialog({ opts = false }, title = { Text(tr("Карта", "Map")) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) { MapChoices() } },
+        confirmButton = { TextButton({ opts = false }) { Text(tr("ОК", "OK")) } })
     pending?.let { p -> MarkDialog(null, p.latitude, p.longitude) { pending = null } }
     sel?.let { s -> MarkDialog(s, null, null) { sel = null } }
 }
 @Composable fun Radar(mod: Modifier) {
-    val me = Store.loc; val t = Store.target(); val az = Store.azimuth
+    val me = Store.loc; val t = Store.target(); val az = (me?.let { Store.curHeading(it) } ?: Store.azimuth.toDouble()).toFloat()
     val pri = MaterialTheme.colorScheme.primary; val sec = MaterialTheme.colorScheme.secondary
     val line = MaterialTheme.colorScheme.onSurface.copy(alpha = .25f)
     Canvas(mod) {
@@ -239,7 +265,7 @@ fun prime(c: Context) {
         }
         if (me != null && t != null) {
             val d = Geo.dist(me.lat, me.lon, t.lat, t.lon)
-            Text(if (d < 15) tr("На месте", "Arrived") else turnText(Geo.rel(me, t)), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+            Text(if (d < 15) tr("На месте", "Arrived") else Store.curHeading(me)?.let { turnText(Geo.rel(me, t, it)) } ?: tr("Идите — определю направление", "Keep moving to get a direction"), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             Text(t.name + " · " + Geo.fmt(d), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (Store.guiding) tr("Голосовые подсказки включены", "Voice guidance on") else tr("Подсказки выключены", "Guidance off"), style = MaterialTheme.typography.labelMedium)
         } else Text(
@@ -336,9 +362,11 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 
 Подсказки работают в фоне, экран можно выключить. Держите телефон горизонтально — компас точнее.
 
+Компас (в настройках): включён — направление по компасу телефона; выключен — по вашему перемещению за интервал (нужно идти). Голос говорит через заданное число секунд или когда вы сместились на заданное число метров.
+
 Радар: верх — туда, куда повёрнут телефон; жёлтая линия — к цели; зелёная ломаная — ваш путь.
 
-Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
+Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка со слоями выбирает источник карты (Яндекс, Google, OSM) и тип. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
 
 Метки: нажмите на метку, чтобы изменить название, заметку, координаты или удалить её. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
 
@@ -353,9 +381,11 @@ const val HELP_EN = """1. Navigate → Start: route recording begins. The app st
 
 Guidance works in the background, you can turn the screen off. Hold the phone flat for a more accurate compass.
 
+Compass (Settings): on — direction from the phone compass; off — from your movement over the interval (keep walking). The voice speaks after the set number of seconds or when you have moved the set number of meters.
+
 Radar: up is where the phone points; the yellow line leads to the target; the green line is your path.
 
-Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
+Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The layers button chooses the map source (Yandex, Google, OSM) and type. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
 
 Marks: tap a mark to edit its name, note, coordinates or delete it. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
 
@@ -372,7 +402,8 @@ Tips: allow location "all the time" and disable battery optimization for the app
     val ctx = LocalContext.current
     val sp = remember { ctx.getSharedPreferences("s", 0) }
     var v by remember { mutableStateOf(sp.getBoolean("voice", true)) }
-    var iv by remember { mutableFloatStateOf(sp.getInt("interval", 15).toFloat()) }
+    var iv by remember { mutableFloatStateOf(sp.getInt("interval", 30).toFloat()) }
+    var dm by remember { mutableFloatStateOf(sp.getInt("dist", 15).toFloat()) }
     var vname by remember { mutableStateOf("") }
     var chosen by remember { mutableStateOf("") }
     var showVoices by remember { mutableStateOf(false) }
@@ -389,11 +420,18 @@ Tips: allow location "all the time" and disable battery optimization for the app
         Choice(tr("Тема", "Theme"), Store.theme, listOf("system" to tr("Системная", "System"), "light" to tr("Светлая", "Light"), "dark" to tr("Тёмная", "Dark"))) {
             Store.theme = it; sp.edit().putString("theme", it).apply()
         }
+        MapChoices()
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text(tr("Голосовые подсказки", "Voice guidance")); Switch(v, { v = it; sp.edit().putBoolean("voice", it).apply() })
         }
-        Text(tr("Интервал подсказок: ", "Guidance interval: ") + "${iv.toInt()} ${tr("с", "s")}")
-        Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 5f..120f)
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text(tr("Компас", "Compass")); Switch(Store.compass, { Store.compass = it; sp.edit().putBoolean("compass", it).apply() })
+        }
+        Text(if (Store.compass) tr("Направление — по компасу телефона", "Direction from the phone compass") else tr("Направление — по вашему перемещению за интервал (нужно идти)", "Direction from your movement over the interval (keep walking)"), style = MaterialTheme.typography.labelMedium)
+        Text(tr("Подсказка не реже чем через: ", "Announce at least every: ") + "${iv.toInt()} ${tr("с", "s")}")
+        Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 5f..300f)
+        Text(tr("…или при смещении на: ", "…or after moving: ") + "${dm.toInt()} ${tr("м", "m")}")
+        Slider(dm, { dm = it; sp.edit().putInt("dist", it.toInt()).apply() }, valueRange = 5f..100f)
         Text(tr("Голос: ", "Voice: ") + vname.ifBlank { "—" }, style = MaterialTheme.typography.labelMedium)
         Seg(listOf(
             SegItem(tr("Проверить", "Test"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },

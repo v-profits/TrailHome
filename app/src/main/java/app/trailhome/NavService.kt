@@ -19,6 +19,7 @@ import java.util.*
 class NavService : Service(), LocationListener, SensorEventListener {
     private var tts: TextToSpeech? = null
     private var lastSpeak = 0L
+    private var lastPos: Pt? = null
     private var first = true
     private var started = false
     private val h = android.os.Handler(android.os.Looper.getMainLooper())
@@ -74,7 +75,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
 
     private fun speak() {
         val sp = getSharedPreferences("s", MODE_PRIVATE)
-        if (!Store.guiding) { lastSpeak = 0; return }
+        if (!Store.guiding) { lastSpeak = 0; lastPos = null; return }
         val t = Store.target() ?: return
         val me = Store.loc ?: return
         val voice = sp.getBoolean("voice", true)
@@ -88,9 +89,13 @@ class NavService : Service(), LocationListener, SensorEventListener {
         }
         if (!voice) return
         val now = System.currentTimeMillis()
-        if (now - lastSpeak < sp.getInt("interval", 15) * 1000L) return
-        lastSpeak = now
-        tts?.speak(turnText(Geo.rel(me, t)), TextToSpeech.QUEUE_FLUSH, null, "n")
+        val lp = lastPos
+        // подсказка: через N секунд ИЛИ когда сместились на M метров от места прошлой подсказки
+        val due = now - lastSpeak >= sp.getInt("interval", 30) * 1000L || (lp != null && Geo.dist(lp.lat, lp.lon, me.lat, me.lon) >= sp.getInt("dist", 15))
+        if (!due) return
+        val hd = Store.curHeading(me) ?: return
+        lastSpeak = now; lastPos = me
+        tts?.speak(turnText(Geo.rel(me, t, hd)), TextToSpeech.QUEUE_FLUSH, null, "n")
     }
 
     override fun onSensorChanged(e: SensorEvent) {

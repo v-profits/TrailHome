@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Цвета значков карты. Меняйте значения — формы значков лежат в res/drawable/ic_pin_*.xml и ic_me.xml -->
+<resources>
+    <color name="pin_mark">#FB8C00</color>
+    <color name="pin_start">#5E35B1</color>
+    <color name="pin_halo">#FFEA00</color>
+    <color name="pin_outline">#1A1A1A</color>
+    <color name="pin_white">#FFFFFF</color>
+    <color name="me_dot">#1E88E5</color>
+    <color name="me_halo">#401E88E5</color>
+    <color name="me_outline">#0B2A57</color>
+</resources>

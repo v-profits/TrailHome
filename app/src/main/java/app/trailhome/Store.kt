@@ -23,6 +23,16 @@ object Store {
     var focus by mutableStateOf<Mark?>(null)
     var sp: android.content.SharedPreferences? = null
     var guiding by mutableStateOf(false)
+    var compass by mutableStateOf(true)
+    var provider by mutableStateOf("auto")
+    var mapType by mutableStateOf("normal")
+    // Направление движения: по компасу или по перемещению за интервал (секунды из настроек)
+    fun curHeading(me: Pt): Double? {
+        if (compass) return azimuth.toDouble()
+        val iv = (sp?.getInt("interval", 30) ?: 30) * 1000L
+        val ref = track.lastOrNull { me.t - it.t >= iv } ?: track.firstOrNull { me.t - it.t <= iv } ?: return null
+        return if (Geo.dist(ref.lat, ref.lon, me.lat, me.lon) < 5) null else Geo.bearing(ref.lat, ref.lon, me.lat, me.lon)
+    }
     var startId by mutableLongStateOf(-1L)
     var showHelp by mutableStateOf(false)
     fun select(id: Long) { targetId = id; guiding = id != -1L; sp?.edit()?.putLong("target", id)?.apply() }
@@ -38,7 +48,7 @@ object Store {
         if (dir != null) return
         dir = c.filesDir
         sp = c.getSharedPreferences("s", 0)
-        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L); startId = sp!!.getLong("start", -1L)
+        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L); startId = sp!!.getLong("start", -1L); compass = sp!!.getBoolean("compass", true); provider = sp!!.getString("provider", "auto")!!; mapType = sp!!.getString("maptype", "normal")!!
         runCatching {
             val a = JSONArray(File(dir, "marks.json").readText())
             for (i in 0 until a.length()) a.getJSONObject(i).let {
@@ -106,7 +116,7 @@ object Geo {
         val x = cos(rad(a)) * sin(rad(c)) - sin(rad(a)) * cos(rad(c)) * cos(dl)
         return (Math.toDegrees(atan2(y, x)) + 360) % 360
     }
-    fun rel(me: Pt, t: Mark) = (bearing(me.lat, me.lon, t.lat, t.lon) - Store.azimuth + 720) % 360
+    fun rel(me: Pt, t: Mark, h: Double = Store.azimuth.toDouble()) = (bearing(me.lat, me.lon, t.lat, t.lon) - h + 720) % 360
     fun clock(rel: Double): String {
         val h = ((rel + 15) / 30).toInt() % 12
         return if (h == 0) tr("прямо", "straight ahead") else if (L.en) "at $h o'clock" else "на $h ${if (h == 1) "час" else if (h < 5) "часа" else "часов"}"

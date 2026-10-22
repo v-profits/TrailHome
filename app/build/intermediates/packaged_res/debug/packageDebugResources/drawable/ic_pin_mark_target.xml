@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="46dp" android:height="63dp" android:viewportWidth="48" android:viewportHeight="66">
+    <group android:translateY="8">
+        <path android:pathData="M24,3C14,3 8,10 8,18c0,11 16,31 16,31s16,-20 16,-31C40,10 34,3 24,3Z" android:fillColor="@android:color/transparent" android:strokeColor="@color/pin_halo" android:strokeWidth="15" android:strokeLineJoin="round"/>
+        <path android:pathData="M24,3C14,3 8,10 8,18c0,11 16,31 16,31s16,-20 16,-31C40,10 34,3 24,3Z" android:fillColor="@android:color/transparent" android:strokeColor="@color/pin_outline" android:strokeWidth="7" android:strokeLineJoin="round"/>
+        <path android:pathData="M24,3C14,3 8,10 8,18c0,11 16,31 16,31s16,-20 16,-31C40,10 34,3 24,3Z" android:fillColor="@android:color/transparent" android:strokeColor="@color/pin_white" android:strokeWidth="4" android:strokeLineJoin="round"/>
+        <path android:pathData="M24,3C14,3 8,10 8,18c0,11 16,31 16,31s16,-20 16,-31C40,10 34,3 24,3Z" android:fillColor="@color/pin_mark"/>
+        <path android:pathData="M24,18m-5,0a5,5 0 1,0 10,0a5,5 0 1,0 -10,0" android:fillColor="@color/pin_white"/>
+    </group>
+</vector>

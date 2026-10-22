@@ -19,6 +19,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -254,7 +255,7 @@ fun prime(c: Context) {
         Seg(listOf(
             SegItem(tr("К старту", "To start"), Icons.Default.Home, enabled = st != null) { Store.select(st!!.id) },
             SegItem(tr("Цель", "Target"), Icons.Default.Place) { pick = true },
-            SegItem(tr("Тишина", "Silence"), Icons.Default.VolumeOff, enabled = Store.guiding) { Store.guiding = false }))
+            SegItem(if (Store.guiding) tr("Тишина", "Silence") else tr("Голос", "Voice"), if (Store.guiding) Icons.Default.VolumeOff else Icons.Default.VolumeUp, selected = !Store.guiding && t != null, enabled = t != null) { Store.guiding = !Store.guiding }))
     }
     if (add) MarkDialog(null, null, null) { add = false }
     if (pick) TargetDialog { pick = false }
@@ -331,7 +332,7 @@ fun prime(c: Context) {
 }
 const val HELP_RU = """1. «Навигация» → «Старт»: начинается запись маршрута. Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
 2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. С этого момента голос говорит только направление, например «вправо 95°» или «прямо». Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
-3. Кнопка «Тишина» выключает подсказки, запись маршрута продолжается. Интервал подсказок меняется в настройках.
+3. Кнопка «Тишина» выключает подсказки (запись маршрута продолжается), кнопка «Голос» включает их снова. Интервал подсказок меняется в настройках.
 
 Подсказки работают в фоне, экран можно выключить. Держите телефон горизонтально — компас точнее.
 
@@ -348,7 +349,7 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
 const val HELP_EN = """1. Navigate → Start: route recording begins. The app stays silent and only records the track. A "Start #N …" mark is created at your position.
 2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. From then on the voice says only the direction, e.g. "right 95°" or "straight". When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
-3. "Silence" turns guidance off while the route keeps recording. The guidance interval is set in Settings.
+3. "Silence" turns guidance off while the route keeps recording; "Voice" turns it back on. The guidance interval is set in Settings.
 
 Guidance works in the background, you can turn the screen off. Hold the phone flat for a more accurate compass.
 
@@ -373,6 +374,8 @@ Tips: allow location "all the time" and disable battery optimization for the app
     var v by remember { mutableStateOf(sp.getBoolean("voice", true)) }
     var iv by remember { mutableFloatStateOf(sp.getInt("interval", 15).toFloat()) }
     var vname by remember { mutableStateOf("") }
+    var chosen by remember { mutableStateOf("") }
+    var showVoices by remember { mutableStateOf(false) }
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
     DisposableEffect(L.en) {
         var t: TextToSpeech? = null
@@ -393,9 +396,22 @@ Tips: allow location "all the time" and disable battery optimization for the app
         Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 5f..120f)
         Text(tr("Голос: ", "Voice: ") + vname.ifBlank { "—" }, style = MaterialTheme.typography.labelMedium)
         Seg(listOf(
-            SegItem(tr("Проверить голос", "Test voice"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },
-            SegItem(tr("Другой голос", "Next voice"), Icons.Default.RecordVoiceOver, enabled = tts != null) { tts?.let { x -> vname = Speaker.next(x, ctx); Speaker.sample(x) } }))
+            SegItem(tr("Проверить", "Test"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },
+            SegItem(tr("Выбрать голос", "Choose voice"), Icons.Default.RecordVoiceOver, enabled = tts != null) { chosen = tts?.voice?.name ?: ""; showVoices = true }))
         Seg(listOf(SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true }))
+    }
+    if (showVoices) tts?.let { x ->
+        val list = Speaker.voices(x)
+        AlertDialog({ Speaker.pick(x, ctx); showVoices = false }, title = { Text(tr("Выберите голос", "Choose voice")) }, text = {
+            if (list.isEmpty()) Text(tr("Голоса не найдены. Установите голоса в настройках синтеза речи телефона.", "No voices found. Install voices in the phone's text-to-speech settings."))
+            LazyColumn { itemsIndexed(list) { i, vc ->
+                TextButton({ chosen = vc.name; x.voice = vc; Speaker.sample(x) }, Modifier.fillMaxWidth()) {
+                    RadioButton(chosen == vc.name, null); Spacer(Modifier.width(8.dp)); Text(Speaker.label(vc, i), Modifier.weight(1f), maxLines = 2)
+                }
+            } }
+        }, confirmButton = {
+            TextButton({ if (chosen.isNotBlank()) { Speaker.save(ctx, chosen); vname = chosen }; showVoices = false }) { Text(tr("ОК", "OK")) }
+        }, dismissButton = { TextButton({ Speaker.pick(x, ctx); showVoices = false }) { Text(tr("Отмена", "Cancel")) } })
     }
 }
 data class SegItem(val label: String, val icon: ImageVector? = null, val selected: Boolean = false, val enabled: Boolean = true, val onClick: () -> Unit)

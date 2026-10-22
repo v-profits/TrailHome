@@ -32,5 +32,9 @@ object Speaker {
         return v.name
     }
 
+    fun save(c: Context, name: String) { c.getSharedPreferences("s", 0).edit().putString("voice_" + locale().language, name).apply() }
+
+    fun label(v: Voice, i: Int) = "${i + 1}. " + v.name + " · " + (if (v.isNetworkConnectionRequired) tr("онлайн", "online") else tr("офлайн", "offline"))
+
     fun sample(t: TextToSpeech) { t.speak(tr("Вправо 95°", "Right 95°"), TextToSpeech.QUEUE_FLUSH, null, "t") }
 }

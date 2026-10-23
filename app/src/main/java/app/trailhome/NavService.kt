@@ -31,11 +31,13 @@ class NavService : Service(), LocationListener, SensorEventListener {
     private var first = true
     private var started = false
     private val h = android.os.Handler(android.os.Looper.getMainLooper())
-    private val tick = object : Runnable { override fun run() { speak(); h.postDelayed(this, 1000) } }
+    private var nTick = 0
+    private val tick = object : Runnable { override fun run() { speak(); if (++nTick % 5 == 0) (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(1, notif()); h.postDelayed(this, 1000) } }
 
     override fun onBind(i: Intent?): IBinder? = null
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
+        if (i?.action == "stop") { stopSelf(); return START_NOT_STICKY }
         if (started) return START_STICKY
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             stopSelf(); return START_NOT_STICKY
@@ -43,13 +45,12 @@ class NavService : Service(), LocationListener, SensorEventListener {
         started = true
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(NotificationChannel("nav", "Навигация", NotificationManager.IMPORTANCE_LOW))
-        val n = Notification.Builder(this, "nav").setContentTitle("TrailHome").setContentText(tr("Идёт запись трека и навигация", "Recording track and navigating"))
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
-            .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)).build()
+        val n = notif()
         ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         Store.init(this)
         Store.recording = true
         h.post(tick)
+        if (!Store.guiding) Store.select(-1)   // цель, выбранная до старта, сохраняется; иначе — тишина и без цели
         tts = TextToSpeech(this) {
             if (it == TextToSpeech.SUCCESS) tts?.let { t ->
                 Speaker.pick(t, this)
@@ -69,13 +70,26 @@ class NavService : Service(), LocationListener, SensorEventListener {
         return START_STICKY
     }
 
+    // Уведомление в шторке висит, пока работает GPS; показывает цель и расстояние, есть кнопка «Стоп»
+    private fun notif(): Notification {
+        val t = Store.target(); val me = Store.loc
+        val text = (if (Store.guiding && t != null && me != null) tr("Ведёт к цели: ", "Guiding to: ") + t.name + " · " + Geo.fmt(Geo.dist(me.lat, me.lon, t.lat, t.lon))
+            else tr("Запись маршрута", "Recording route")) + " · " + tr("спутники ", "satellites ") + "${Store.satUsed}/${Store.satVisible}"
+        return Notification.Builder(this, "nav").setContentTitle(tr("TrailHome: GPS включён", "TrailHome: GPS on")).setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).setOnlyAlertOnce(true)
+            .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+            .addAction(Notification.Action.Builder(android.R.drawable.ic_media_pause, tr("Стоп", "Stop"),
+                PendingIntent.getService(this, 1, Intent(this, NavService::class.java).setAction("stop"), PendingIntent.FLAG_IMMUTABLE)).build())
+            .build()
+    }
+
     override fun onLocationChanged(l: Location) {
         val p = Pt(l.latitude, l.longitude, System.currentTimeMillis())
         Store.loc = p
         if (first) {
             first = false
             Store.addMark(tr("Старт", "Start") + " №" + (Store.marks.count { it.name.startsWith("Старт") || it.name.startsWith("Start") } + 1) + " · " + SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date()), p.lat, p.lon)
-            Store.markStart(Store.marks.last().id); Store.select(-1)
+            Store.markStart(Store.marks.last().id)
         }
         Store.track.add(p)
         if (Store.track.size % 10 == 0) Store.saveTrack()
@@ -91,7 +105,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         if (Geo.dist(me.lat, me.lon, t.lat, t.lon) < 15) {
             Store.guiding = false
             // у стартовой точки запись останавливается сама (если вы от неё отходили)
-            val home = t.id == Store.startId && Store.track.any { Geo.dist(it.lat, it.lon, t.lat, t.lon) > 50 }
+            val home = Store.isStart(t) && Store.track.any { Geo.dist(it.lat, it.lon, t.lat, t.lon) > 50 }
             if (voice) tts?.speak(tr("На месте", "Arrived"), TextToSpeech.QUEUE_FLUSH, null, if (home) "arrive" else "n")
             if (home) h.postDelayed({ stopSelf() }, if (voice) 6000L else 0L)
             return
@@ -119,7 +133,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(this)
         (getSystemService(LOCATION_SERVICE) as LocationManager).unregisterGnssStatusCallback(gnss); Store.satVisible = 0; Store.satUsed = 0
         (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(this)
-        h.removeCallbacks(tick); tts?.shutdown(); Store.saveTrack(); Store.recording = false
+        h.removeCallbacks(tick); tts?.shutdown(); Store.saveTrack(); Store.recording = false; Store.select(-1); Store.select(-1)
         super.onDestroy()
     }
 }

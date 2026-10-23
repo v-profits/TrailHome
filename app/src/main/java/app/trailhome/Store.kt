@@ -41,6 +41,7 @@ object Store {
     fun select(id: Long) { targetId = id; guiding = id != -1L; sp?.edit()?.putLong("target", id)?.apply() }
     fun markStart(id: Long) { startId = id; sp?.edit()?.putLong("start", id)?.apply() }
     fun startMark() = marks.firstOrNull { it.id == startId }
+    fun isStart(m: Mark) = m.id == startId || m.name.startsWith("Старт") || m.name.startsWith("Start")
     fun updateMark(m: Mark) { val i = marks.indexOfFirst { it.id == m.id }; if (i >= 0) { marks[i] = m; saveMarks() } }
     var recording by mutableStateOf(false)
     private var dir: File? = null
@@ -136,7 +137,7 @@ fun tr(ru: String, en: String) = if (L.en) en else ru
 private fun decl(n: Int, one: String, few: String, many: String) = if (n % 100 in 11..14) many else when (n % 10) { 1 -> one; 2, 3, 4 -> few; else -> many }
 
 // Подсказка простыми словами: >135° — развернитесь, 45–135° — поверните, <45° — держитесь правее/левее на N°
-fun turnText(rel: Double): String {
+fun turnText(rel: Double, speech: Boolean = false): String {
     val d = if (rel > 180) 360 - rel else rel
     val n = (d / 5).roundToInt() * 5
     val right = rel <= 180
@@ -144,7 +145,7 @@ fun turnText(rel: Double): String {
         d > 135 -> tr("Развернитесь", "Turn around")
         d > 45 -> if (right) tr("Поверните направо", "Turn right") else tr("Поверните налево", "Turn left")
         d < 10 -> tr("Идите прямо", "Go straight")
-        else -> (if (right) tr("Держитесь правее", "Bear right") else tr("Держитесь левее", "Bear left")) + tr(" на ", " by ") + "$n°"
+        else -> (if (right) (if (speech) tr("Держитесь правее", "Bear right") else tr("Правее", "Bear right")) else (if (speech) tr("Держитесь левее", "Bear left") else tr("Левее", "Bear left"))) + tr(" на ", " by ") + "$n°"
     }
 }
 
@@ -158,5 +159,5 @@ fun turnSpeech(rel: Double, dist: Double): String {
         val ks = if (k == floor(k)) "${k.toInt()}" else String.format(Locale.US, "%.1f", k)
         ks + " " + (if (L.en) "kilometers" else if (k == floor(k)) decl(k.toInt(), "километр", "километра", "километров") else "километра")
     }
-    return turnText(rel).replace("°", " " + tr("градусов", "degrees")) + ", " + tr("до цели ", "to the target ") + (if (L.en) far else far.replace('.', ','))
+    return turnText(rel, true).replace("°", " " + tr("градусов", "degrees")) + ", " + tr("до цели ", "to the target ") + (if (L.en) far else far.replace('.', ','))
 }

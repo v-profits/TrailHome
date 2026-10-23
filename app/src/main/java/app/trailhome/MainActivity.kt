@@ -15,6 +15,7 @@ import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -106,55 +107,63 @@ fun prime(c: Context) {
 
 @Composable fun App() {
     val ctx = LocalContext.current
-    var menu by remember { mutableStateOf(false) }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { prime(ctx) }
     LaunchedEffect(Unit) {
         prime(ctx)
         perm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS))
     }
     val items = listOf(tr("Навигация", "Navigate") to Icons.Default.Explore, tr("Карта", "Map") to Icons.Default.Map,
-        tr("Метки", "Marks") to Icons.Default.Place, tr("Трек", "Track") to Icons.Default.Timeline)
-    Scaffold(topBar = {
-        TopAppBar(title = { Text(if (Store.tab == 4) tr("Настройки", "Settings") else "TrailHome", fontWeight = FontWeight.Bold) },
-            navigationIcon = { if (Store.tab == 4) IconButton({ Store.tab = 0 }) { Icon(Icons.Default.ArrowBack, tr("Назад", "Back")) } },
-            actions = {
-                Box {
-                    IconButton({ menu = true }) { Icon(Icons.Default.MoreVert, tr("Меню", "Menu")) }
-                    DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem({ Text(tr("Настройки", "Settings")) }, { Store.tab = 4; menu = false }, leadingIcon = { Icon(Icons.Default.Settings, null) })
-                        DropdownMenuItem({ Text(tr("Инструкция", "User guide")) }, { Store.showHelp = true; menu = false }, leadingIcon = { Icon(Icons.Default.Info, null) })
-                    }
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
-    }, bottomBar = {
-        NavigationBar { items.forEachIndexed { i, (n, ic) -> NavigationBarItem(Store.tab == i, { Store.tab = i }, { Icon(ic, n) }, label = { Text(n, maxLines = 1) }) } }
+        tr("Метки", "Marks") to Icons.Default.Place, tr("Настройки", "Settings") to Icons.Default.Settings)
+    BackHandler(Store.tab == 4) { Store.tab = 3 }
+    Scaffold(bottomBar = {
+        NavigationBar { items.forEachIndexed { i, (n, ic) -> NavigationBarItem(Store.tab == i || (i == 3 && Store.tab == 4), { Store.tab = i }, { Icon(ic, n) }, label = { Text(n, maxLines = 1) }) } }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
-            when (Store.tab) { 0 -> NavScreen(); 1 -> MapScreen(); 2 -> MarksScreen(); 3 -> TrackScreen(); else -> SettingsScreen() }
+            when (Store.tab) {
+                0 -> NavScreen(); 1 -> MapScreen(); 2 -> MarksScreen(); 3 -> SettingsScreen()
+                else -> Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.padding(16.dp, 12.dp, 16.dp, 0.dp)) { Seg(listOf(SegItem(tr("Назад", "Back"), Icons.Default.ArrowBack) { Store.tab = 3 })) }
+                    TrackScreen()
+                }
+            }
         }
     }
     if (Store.showHelp) AlertDialog({ Store.showHelp = false }, title = { Text(tr("Инструкция", "User guide")) },
         text = { Text(if (L.en) HELP_EN else HELP_RU, Modifier.verticalScroll(rememberScrollState())) },
         confirmButton = { TextButton({ Store.showHelp = false }) { Text(tr("Закрыть", "Close")) } })
 }
-@Composable fun VoiceField(v: String, onV: (String) -> Unit, label: String, kb: KeyboardType = KeyboardType.Text, append: Boolean = false, multiline: Boolean = false) {
+@Composable fun VoiceField(v: String, onV: (String) -> Unit, label: String, kb: KeyboardType = KeyboardType.Text, append: Boolean = true, multiline: Boolean = false) {
     val ctx = LocalContext.current
+    // Голос всегда дописывается к тексту; начало текста и новое предложение — с большой буквы
     val l = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
-        r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { onV(if (append && v.isNotBlank()) "$v $it" else it) }
+        r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.let { raw ->
+            val t = v.trimEnd()
+            val sentence = t.isEmpty() || t.endsWith(".") || t.endsWith("!") || t.endsWith("?")
+            val piece = if (sentence) raw.replaceFirstChar { it.uppercase() } else raw
+            onV(if (t.isEmpty()) piece else "$t $piece")
+        }
     }
     OutlinedTextField(v, onV, Modifier.fillMaxWidth(), label = { Text(label) }, keyboardOptions = KeyboardOptions(keyboardType = kb), shape = RoundedCornerShape(14.dp),
         singleLine = !multiline, maxLines = if (multiline) 5 else 1,
         trailingIcon = {
-            IconButton({
-                val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (L.en) "en-US" else "ru-RU").putExtra(RecognizerIntent.EXTRA_PROMPT, label)
-                try { l.launch(i) } catch (e: Exception) { Toast.makeText(ctx, tr("Голосовой ввод недоступен", "Voice input unavailable"), Toast.LENGTH_SHORT).show() }
-            }) { Icon(Icons.Default.Mic, tr("Голосовой ввод", "Voice input")) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (v.isNotEmpty()) IconButton({ onV("") }) { Icon(Icons.Default.Close, tr("Очистить", "Clear")) }
+                IconButton({
+                    val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        .putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (L.en) "en-US" else "ru-RU").putExtra(RecognizerIntent.EXTRA_PROMPT, label)
+                    try { l.launch(i) } catch (e: Exception) { Toast.makeText(ctx, tr("Голосовой ввод недоступен", "Voice input unavailable"), Toast.LENGTH_SHORT).show() }
+                }) { Icon(Icons.Default.Mic, tr("Голосовой ввод", "Voice input")) }
+            }
         })
+}
+
+@Composable fun ConfirmDialog(text: String, onYes: () -> Unit, onNo: () -> Unit) {
+    AlertDialog(onNo, title = { Text(tr("Подтвердите", "Confirm")) }, text = { Text(text) },
+        confirmButton = { TextButton({ onYes() }) { Text(tr("Удалить", "Delete")) } }, dismissButton = { TextButton(onNo) { Text(tr("Отмена", "Cancel")) } })
 }
 @Composable fun MarkDialog(m: Mark?, lat0: Double?, lon0: Double?, onDone: () -> Unit) {
     val ctx = LocalContext.current
+    var confirmDel by remember { mutableStateOf(false) }
     fun f(d: Double?) = d?.let { String.format(Locale.US, "%.6f", it) } ?: ""
     var n by remember { mutableStateOf(m?.name ?: "") }; var note by remember { mutableStateOf(m?.note ?: "") }
     var la by remember { mutableStateOf(f(m?.lat ?: lat0 ?: Store.loc?.lat)) }; var lo by remember { mutableStateOf(f(m?.lon ?: lon0 ?: Store.loc?.lon)) }
@@ -166,20 +175,22 @@ fun prime(c: Context) {
             VoiceField(la, { la = it }, tr("Широта", "Latitude"), KeyboardType.Decimal)
             VoiceField(lo, { lo = it }, tr("Долгота", "Longitude"), KeyboardType.Decimal)
             if (m != null) Seg(listOf(
-                SegItem(tr("Цель", "Target"), Icons.Default.Navigation) { Store.select(m.id); Store.tab = 0; onDone() },
-                SegItem(tr("Удалить", "Delete"), Icons.Default.Delete) { Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); onDone() }))
+                SegItem(tr("Цель", "Target"), Icons.Default.Navigation) { goTo(ctx, m.id); Store.tab = 0; onDone() },
+                SegItem(tr("Удалить", "Delete"), Icons.Default.Delete) { confirmDel = true }))
         }
     }, confirmButton = {
         TextButton({
             val a = la.replace(',', '.').toDoubleOrNull(); val o = lo.replace(',', '.').toDoubleOrNull()
             if (a == null || o == null) Toast.makeText(ctx, tr("Укажите координаты", "Enter coordinates"), Toast.LENGTH_LONG).show()
             else {
-                val name = n.ifBlank { tr("Метка", "Mark") + " ${Store.marks.size + 1}" }
+                val name = n.trim().replaceFirstChar { it.uppercase() }.ifBlank { tr("Метка", "Mark") + " ${Store.marks.size + 1}" }
                 if (m == null) Store.addMark(name, a, o, note) else Store.updateMark(m.copy(name = name, lat = a, lon = o, note = note))
                 onDone()
             }
         }) { Text(tr("Сохранить", "Save")) }
     }, dismissButton = { TextButton(onDone) { Text(tr("Отмена", "Cancel")) } })
+    if (confirmDel && m != null) ConfirmDialog(tr("Удалить метку «", "Delete mark \"") + m.name + tr("»?", "\"?"),
+        { Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); confirmDel = false; onDone() }, { confirmDel = false })
 }
 @Composable fun MapChoices() {
     Choice(tr("Карта", "Map"), Store.provider, listOf("auto" to tr("Авто", "Auto"), "yandex" to tr("Яндекс", "Yandex"), "google" to "Google", "osm" to "OSM")) {
@@ -301,14 +312,14 @@ fun prime(c: Context) {
         Seg(listOf(
             SegItem(if (Store.recording) tr("Стоп", "Stop") else tr("Старт", "Start"), if (Store.recording) Icons.Default.Stop else Icons.Default.PlayArrow, Store.recording) {
                 val i = Intent(ctx, NavService::class.java)
-                if (Store.recording) ctx.stopService(i) else ctx.startForegroundService(i)
+                if (Store.recording) ctx.stopService(i) else startNav(ctx)
             },
             SegItem(tr("Метка", "Mark"), Icons.Default.MyLocation) { add = true },
-            SegItem(tr("Компас", "Compass"), Icons.Default.Explore, selected = Store.compass) { Store.switchCompass(!Store.compass) }))
+            SegItem(tr("Компас", "Compass"), Icons.Default.Explore, selected = Store.compass) { Store.switchCompass(!Store.compass) }), fill = true)
         Seg(listOf(
-            SegItem(tr("К старту", "To start"), Icons.Default.Home, enabled = st != null) { Store.select(st!!.id) },
+            SegItem(tr("К старту", "To start"), Icons.Default.Home, enabled = st != null) { goTo(ctx, st!!.id) },
             SegItem(tr("Цель", "Target"), Icons.Default.Place) { pick = true },
-            SegItem(if (Store.guiding) tr("Тишина", "Silence") else tr("Голос", "Voice"), if (Store.guiding) Icons.Default.VolumeOff else Icons.Default.VolumeUp, selected = !Store.guiding && t != null, enabled = t != null) { Store.guiding = !Store.guiding }))
+            SegItem(if (Store.guiding) tr("Тишина", "Silence") else tr("Голос", "Voice"), if (Store.guiding) Icons.Default.VolumeOff else Icons.Default.VolumeUp, selected = !Store.guiding && t != null, enabled = t != null) { Store.guiding = !Store.guiding }), fill = true)
     }
     if (add) MarkDialog(null, null, null) { add = false }
     if (pick) TargetDialog { pick = false }
@@ -316,6 +327,7 @@ fun prime(c: Context) {
 @Composable fun MarksScreen() {
     val ctx = LocalContext.current
     var add by remember { mutableStateOf(false) }; var edit by remember { mutableStateOf<Mark?>(null) }; var q by remember { mutableStateOf("") }
+    var starts by remember { mutableStateOf(false) }; var clear by remember { mutableStateOf(false) }
     val exp = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { u ->
         u?.let { ctx.contentResolver.openOutputStream(it)?.use { o -> o.write(Store.toGpx().toByteArray()) }; Toast.makeText(ctx, tr("Экспортировано", "Exported"), Toast.LENGTH_SHORT).show() }
     }
@@ -325,14 +337,20 @@ fun prime(c: Context) {
             Toast.makeText(ctx, tr("Импортировано меток: ", "Imported marks: ") + Store.fromGpx(s), Toast.LENGTH_SHORT).show()
         }
     }
+    val nStarts = Store.marks.count { Store.isStart(it) }; val nMarks = Store.marks.size - nStarts
+    val shown = Store.marks.filter { Store.isStart(it) == starts && (it.name.contains(q, true) || it.note.contains(q, true)) }.let { if (starts) it.reversed() else it }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        VoiceField(q, { q = it }, tr("Поиск метки", "Search marks"))
         Seg(listOf(
+            SegItem(tr("Метки", "Marks") + " ($nMarks)", selected = !starts) { starts = false },
+            SegItem(tr("Старты", "Starts") + " ($nStarts)", selected = starts) { starts = true }), fill = true)
+        VoiceField(q, { q = it }, if (starts) tr("Поиск старта", "Search starts") else tr("Поиск метки", "Search marks"))
+        if (!starts) Seg(listOf(
             SegItem(tr("Метка", "Mark"), Icons.Default.Add) { add = true },
             SegItem(tr("Экспорт", "Export"), Icons.Default.FileUpload) { exp.launch("trailhome.gpx") },
             SegItem(tr("Импорт", "Import"), Icons.Default.FileDownload) { imp.launch(arrayOf("*/*")) }))
+        else Seg(listOf(SegItem(tr("Очистить старты", "Clear starts"), Icons.Default.Delete, enabled = nStarts > 0) { clear = true }))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(Store.marks.filter { it.name.contains(q, true) || it.note.contains(q, true) }, key = { it.id }) { m ->
+            items(shown, key = { it.id }) { m ->
                 Card({ edit = m }, colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -343,7 +361,7 @@ fun prime(c: Context) {
                         }
                         IconButton({ Store.focus = m; Store.tab = 1 }) { Icon(Icons.Default.Map, tr("На карте", "On map")) }
                         IconButton({
-                            Store.select(m.id); Store.tab = 0
+                            goTo(ctx, m.id); Store.tab = 0
                             Toast.makeText(ctx, tr("Цель: ", "Target: ") + m.name, Toast.LENGTH_SHORT).show()
                         }) { Icon(Icons.Default.Navigation, tr("Цель", "Target"), tint = if (m.id == Store.targetId) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
@@ -353,6 +371,10 @@ fun prime(c: Context) {
     }
     if (add) MarkDialog(null, null, null) { add = false }
     edit?.let { m -> MarkDialog(m, null, null) { edit = null } }
+    if (clear) ConfirmDialog(tr("Удалить все старты? Метки останутся.", "Delete all starts? Marks will stay."), {
+        if (Store.target()?.let { Store.isStart(it) } == true) Store.select(-1)
+        Store.marks.removeAll { Store.isStart(it) }; Store.saveMarks(); Store.markStart(-1); clear = false
+    }, { clear = false })
 }
 @Composable fun TrackScreen() {
     var p by remember { mutableIntStateOf(0) }
@@ -384,7 +406,7 @@ fun prime(c: Context) {
     }
 }
 const val HELP_RU = """1. «Навигация» → «Старт»: начинается запись маршрута. Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
-2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. С этого момента голос подсказывает по-простому: «Развернитесь», «Поверните направо», «Держитесь правее на 30 градусов» — и называет расстояние до цели. Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
+2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. GPS включится сам, если он выключен. С этого момента голос подсказывает по-простому: «Развернитесь», «Поверните направо», «Держитесь правее на 30 градусов» — и называет расстояние до цели. Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
 3. Кнопка «Тишина» выключает подсказки (запись маршрута продолжается), кнопка «Голос» включает их снова. Интервал подсказок меняется в настройках.
 
 Подсказки работают в фоне, экран можно выключить. Держите телефон горизонтально — компас точнее.
@@ -401,11 +423,11 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 
 Трек: путь за час, сутки или всё время с разбивкой по периодам и дням.
 
-Меню ⋮ вверху: настройки и эта инструкция. Микрофон есть в каждом поле ввода.
+Инструкция и статистика трека за час, сутки и всё время — на вкладке «Настройки». Микрофон есть в каждом поле ввода.
 
 Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
 const val HELP_EN = """1. Navigate → Start: route recording begins. The app stays silent and only records the track. A "Start #N …" mark is created at your position.
-2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. From then on the voice gives plain instructions: "Turn around", "Turn right", "Bear right by 30 degrees" — and the distance to the target. When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
+2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. GPS turns on by itself if it was off. From then on the voice gives plain instructions: "Turn around", "Turn right", "Bear right by 30 degrees" — and the distance to the target. When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
 3. "Silence" turns guidance off while the route keeps recording; "Voice" turns it back on. The guidance interval is set in Settings.
 
 Guidance works in the background, you can turn the screen off. Hold the phone flat for a more accurate compass.
@@ -422,7 +444,7 @@ Marks: tap a mark to edit its name, note, coordinates or delete it. The list sho
 
 Track: your path for an hour, a day or all time, grouped by period and day.
 
-Menu ⋮ at the top: settings and this guide. Every input field has a microphone.
+The guide and track statistics for an hour, a day and all time are on the Settings tab. Every input field has a microphone.
 
 Tips: allow location "all the time" and disable battery optimization for the app."""
 @Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, on: (String) -> Unit) {
@@ -467,7 +489,9 @@ Tips: allow location "all the time" and disable battery optimization for the app
         Seg(listOf(
             SegItem(tr("Проверить", "Test"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },
             SegItem(tr("Выбрать голос", "Choose voice"), Icons.Default.RecordVoiceOver, enabled = tts != null) { chosen = tts?.voice?.name ?: ""; showVoices = true }))
-        Seg(listOf(SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true }))
+        Seg(listOf(
+            SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true },
+            SegItem(tr("Статистика трека", "Track stats"), Icons.Default.Timeline) { Store.tab = 4 }))
     }
     if (showVoices) tts?.let { x ->
         val list = Speaker.voices(x)
@@ -498,13 +522,28 @@ data class SegItem(val label: String, val icon: ImageVector? = null, val selecte
     else FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier, false) } }
 }
 @Composable fun TargetDialog(onDone: () -> Unit) {
+    val ctx = LocalContext.current
     AlertDialog(onDone, title = { Text(tr("Выберите цель", "Choose target")) }, text = {
         if (Store.marks.isEmpty()) Text(tr("Меток пока нет", "No marks yet"))
         LazyColumn { items(Store.marks.reversed(), key = { it.id }) { m ->
-            TextButton({ Store.select(m.id); onDone() }, Modifier.fillMaxWidth()) { Text(m.name, Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            TextButton({ goTo(ctx, m.id); onDone() }, Modifier.fillMaxWidth()) { Text(m.name, Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis) }
         } }
     }, confirmButton = { TextButton(onDone) { Text(tr("Закрыть", "Close")) } })
 }
 
 fun satText() = if (Store.recording) tr("Спутники: видно ${Store.satVisible}, используется ${Store.satUsed}", "Satellites: ${Store.satVisible} visible, ${Store.satUsed} used")
 else tr("GPS выключен — нажмите «Старт»", "GPS off — press Start")
+
+// Запуск GPS и записи; без разрешения на геолокацию сервис не стартует
+fun startNav(c: Context) {
+    if (c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        Toast.makeText(c, tr("Разрешите доступ к геолокации в настройках телефона", "Allow location access in the phone settings"), Toast.LENGTH_LONG).show(); return
+    }
+    c.startForegroundService(Intent(c, NavService::class.java))
+}
+
+// Выбор цели: включает подсказки и, если GPS выключен, запускает его
+fun goTo(c: Context, id: Long) {
+    Store.select(id)
+    if (!Store.recording) startNav(c)
+}

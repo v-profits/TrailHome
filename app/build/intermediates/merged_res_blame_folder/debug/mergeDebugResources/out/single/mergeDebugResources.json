@@ -1,30 +1,34 @@
 [
     {
-        "merged": "app.trailhome.app-debug-41:/drawable_ic_pin_start_target.xml.flat",
-        "source": "app.trailhome.app-main-43:/drawable/ic_pin_start_target.xml"
+        "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_pin_start_target.xml.flat",
+        "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_pin_start_target.xml"
     },
     {
         "merged": "app.trailhome.app-debug-41:/drawable_ic_pin_mark.xml.flat",
         "source": "app.trailhome.app-main-43:/drawable/ic_pin_mark.xml"
     },
     {
-        "merged": "app.trailhome.app-debug-41:/drawable_ic_me.xml.flat",
-        "source": "app.trailhome.app-main-43:/drawable/ic_me.xml"
-    },
-    {
-        "merged": "app.trailhome.app-debug-41:/drawable_ic_pin_start.xml.flat",
-        "source": "app.trailhome.app-main-43:/drawable/ic_pin_start.xml"
+        "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_me.xml.flat",
+        "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_me.xml"
     },
     {
         "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\mipmap-anydpi-v26_ic_launcher.xml.flat",
         "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\mipmap-anydpi-v26\\ic_launcher.xml"
     },
     {
+        "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_pin_start.xml.flat",
+        "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_pin_start.xml"
+    },
+    {
         "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_foreground.xml.flat",
         "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_foreground.xml"
     },
     {
-        "merged": "app.trailhome.app-debug-41:/drawable_ic_pin_mark_target.xml.flat",
-        "source": "app.trailhome.app-main-43:/drawable/ic_pin_mark_target.xml"
+        "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_pin_mark_target.xml.flat",
+        "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_pin_mark_target.xml"
+    },
+    {
+        "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_pin_mark.xml.flat",
+        "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_pin_mark.xml"
     }
 ]

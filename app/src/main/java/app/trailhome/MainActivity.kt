@@ -200,7 +200,7 @@ fun prime(c: Context) {
         Store.provider = it; Store.sp?.edit()?.putString("provider", it)?.apply()
     }
     Choice(tr("Тип карты", "Map type"), Store.mapType, listOf("normal" to tr("Обычная", "Normal"), "satellite" to tr("Спутниковая", "Satellite"),
-        "hybrid" to tr("Гибридная", "Hybrid"), "terrain" to tr("Ландшафт", "Terrain")), false) {
+        "hybrid" to tr("Гибридная", "Hybrid"), "terrain" to tr("Ландшафт", "Terrain")), true) {
         Store.mapType = it; Store.sp?.edit()?.putString("maptype", it)?.apply()
     }
     Text(tr("Сейчас: ", "Now: ") + when (MapSources.provider()) { "yandex" -> tr("Яндекс", "Yandex"); "google" -> "Google"; else -> "OSM" } +
@@ -450,10 +450,10 @@ Track: your path for an hour, a day or all time, grouped by period and day.
 The guide and track statistics for an hour, a day and all time are on the Settings tab. Every input field has a microphone.
 
 Tips: allow location "all the time" and disable battery optimization for the app."""
-@Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, full: Boolean = true, on: (String) -> Unit) {
+@Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, grid: Boolean = false, on: (String) -> Unit) {
     Text(title, style = MaterialTheme.typography.titleMedium)
     val items = opts.map { (k, l) -> SegItem(l, selected = cur == k) { on(k) } }
-    if (full) Seg(items, fill = true) else SegFit(items)
+    if (grid) items.chunked(2).forEach { Seg(it, fill = true) } else Seg(items)
 }
 @Composable fun SettingsScreen() {
     val ctx = LocalContext.current

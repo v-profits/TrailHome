@@ -5,6 +5,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.location.LocationManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -177,6 +178,7 @@ fun prime(c: Context) {
             VoiceField(lo, { lo = it }, tr("Долгота", "Longitude"), KeyboardType.Decimal)
             if (m != null) Seg(listOf(
                 SegItem(tr("Цель", "Target"), Icons.Default.Navigation) { goTo(ctx, m.id); Store.tab = 0; onDone() },
+                SegItem(tr("Навигатор", "Navigator"), Icons.Default.Directions) { openMap(ctx, la.replace(',', '.').toDoubleOrNull() ?: m.lat, lo.replace(',', '.').toDoubleOrNull() ?: m.lon, n.ifBlank { m.name }) },
                 SegItem(tr("Удалить", "Delete"), Icons.Default.Delete) { confirmDel = true }))
         }
     }, confirmButton = {
@@ -198,7 +200,7 @@ fun prime(c: Context) {
         Store.provider = it; Store.sp?.edit()?.putString("provider", it)?.apply()
     }
     Choice(tr("Тип карты", "Map type"), Store.mapType, listOf("normal" to tr("Обычная", "Normal"), "satellite" to tr("Спутниковая", "Satellite"),
-        "hybrid" to tr("Гибридная", "Hybrid"), "terrain" to tr("Ландшафт", "Terrain"))) {
+        "hybrid" to tr("Гибридная", "Hybrid"), "terrain" to tr("Ландшафт", "Terrain")), false) {
         Store.mapType = it; Store.sp?.edit()?.putString("maptype", it)?.apply()
     }
     Text(tr("Сейчас: ", "Now: ") + when (MapSources.provider()) { "yandex" -> tr("Яндекс", "Yandex"); "google" -> "Google"; else -> "OSM" } +
@@ -348,7 +350,7 @@ fun prime(c: Context) {
         if (!starts) Seg(listOf(
             SegItem(tr("Метка", "Mark"), Icons.Default.Add) { add = true },
             SegItem(tr("Экспорт", "Export"), Icons.Default.FileUpload) { exp.launch("trailhome.gpx") },
-            SegItem(tr("Импорт", "Import"), Icons.Default.FileDownload) { imp.launch(arrayOf("*/*")) }))
+            SegItem(tr("Импорт", "Import"), Icons.Default.FileDownload) { imp.launch(arrayOf("*/*")) }), fill = true)
         else Seg(listOf(SegItem(tr("Очистить старты", "Clear starts"), Icons.Default.Delete, enabled = nStarts > 0) { clear = true }))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(shown, key = { it.id }) { m ->
@@ -420,7 +422,7 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 
 Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка со слоями выбирает источник карты (Google, Яндекс, OSM) и тип. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
 
-Метки: нажмите на метку, чтобы изменить название, заметку, координаты или удалить её. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
+Метки: нажмите на метку или старт — откроется окно с названием, заметкой и координатами. «Цель» ведёт к метке, «Навигатор» открывает список приложений с картами для маршрута до этих координат (например, на авто), «Удалить» удаляет метку после подтверждения. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
 
 Трек: путь за час, сутки или всё время с разбивкой по периодам и дням.
 
@@ -441,16 +443,17 @@ Radar: up is where the phone points; the yellow line leads to the target; the gr
 
 Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The layers button chooses the map source (Google, Yandex, OSM) and type. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
 
-Marks: tap a mark to edit its name, note, coordinates or delete it. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
+Marks: tap a mark or a start to open a window with its name, note and coordinates. "Target" guides you to it, "Navigator" opens the list of map apps for a route to those coordinates (e.g. by car), "Delete" removes the mark after confirmation. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
 
 Track: your path for an hour, a day or all time, grouped by period and day.
 
 The guide and track statistics for an hour, a day and all time are on the Settings tab. Every input field has a microphone.
 
 Tips: allow location "all the time" and disable battery optimization for the app."""
-@Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, on: (String) -> Unit) {
+@Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, full: Boolean = true, on: (String) -> Unit) {
     Text(title, style = MaterialTheme.typography.titleMedium)
-    SegFit(opts.map { (k, l) -> SegItem(l, selected = cur == k) { on(k) } })
+    val items = opts.map { (k, l) -> SegItem(l, selected = cur == k) { on(k) } }
+    if (full) Seg(items, fill = true) else SegFit(items)
 }
 @Composable fun SettingsScreen() {
     val ctx = LocalContext.current
@@ -487,12 +490,12 @@ Tips: allow location "all the time" and disable battery optimization for the app
         Text(tr("…или при смещении на: ", "…or after moving: ") + "${dm.toInt()} ${tr("м", "m")}")
         Slider(dm, { dm = it; sp.edit().putInt("dist", it.toInt()).apply() }, valueRange = 5f..100f)
         Text(tr("Голос: ", "Voice: ") + vname.ifBlank { "—" }, style = MaterialTheme.typography.labelMedium)
-        SegFit(listOf(
+        Seg(listOf(
             SegItem(tr("Проверить", "Test"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },
-            SegItem(tr("Выбрать голос", "Choose voice"), Icons.Default.RecordVoiceOver, enabled = tts != null) { chosen = tts?.voice?.name ?: ""; showVoices = true }))
-        SegFit(listOf(
+            SegItem(tr("Выбрать голос", "Choose voice"), Icons.Default.RecordVoiceOver, enabled = tts != null) { chosen = tts?.voice?.name ?: ""; showVoices = true }), fill = true)
+        Seg(listOf(
             SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true },
-            SegItem(tr("Статистика трека", "Track stats"), Icons.Default.Timeline) { Store.tab = 4 }))
+            SegItem(tr("Статистика трека", "Track stats"), Icons.Default.Timeline) { Store.tab = 4 }), fill = true)
     }
     if (showVoices) tts?.let { x ->
         val list = Speaker.voices(x)
@@ -510,18 +513,25 @@ Tips: allow location "all the time" and disable battery optimization for the app
 }
 data class SegItem(val label: String, val icon: ImageVector? = null, val selected: Boolean = false, val enabled: Boolean = true, val onClick: () -> Unit)
 
-@Composable fun Chip(o: SegItem, mod: Modifier, center: Boolean) {
+@Composable fun Chip(o: SegItem, mod: Modifier, center: Boolean, icons: Boolean = true) {
     FilterChip(o.selected, o.onClick, {
-        Text(o.label, if (center) Modifier.fillMaxWidth() else Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = if (center) TextAlign.Center else null)
+        Text(o.label, if (center) Modifier.fillMaxWidth() else Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            textAlign = if (center) TextAlign.Center else null, style = if (center) MaterialTheme.typography.labelMedium else LocalTextStyle.current)
     }, mod, enabled = o.enabled,
-        leadingIcon = if (o.icon != null) { { Icon(o.icon, null, Modifier.size(18.dp)) } }
-            else if (o.selected) { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null)
+        leadingIcon = if (icons && o.icon != null) { { Icon(o.icon, null, Modifier.size(18.dp)) } }
+            else if (!center && o.selected) { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null)
 }
 
+// fill = true: кнопки на всю ширину равными частями (значки скрываются, если подписи не помещаются)
+
 @Composable fun Seg(opts: List<SegItem>, fill: Boolean = false) {
-    if (fill) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier.weight(1f), true) } }
-    else FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier, false) } }
+    if (fill) BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val per = (maxWidth - 8.dp * (opts.size - 1)) / opts.size
+        val icons = opts.all { (60.0 + it.label.length * 7.5).dp <= per }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier.weight(1f), true, icons) } }
+    } else FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier, false) } }
 }
+
 @Composable fun TargetDialog(onDone: () -> Unit) {
     val ctx = LocalContext.current
     AlertDialog(onDone, title = { Text(tr("Выберите цель", "Choose target")) }, text = {
@@ -556,4 +566,11 @@ fun goTo(c: Context, id: Long) {
         if (need.dp <= maxWidth) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier.weight(1f), true) } }
         else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier, false) } }
     }
+}
+
+// Системный список приложений с картами: открыть точку по координатам
+fun openMap(c: Context, lat: Double, lon: Double, name: String) {
+    val la = String.format(Locale.US, "%.6f", lat); val lo = String.format(Locale.US, "%.6f", lon)
+    val i = Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$la,$lo?q=$la,$lo(${Uri.encode(name)})")), tr("Открыть в приложении", "Open with"))
+    try { c.startActivity(i) } catch (e: Exception) { Toast.makeText(c, tr("Нет приложений с картами", "No map apps found"), Toast.LENGTH_SHORT).show() }
 }

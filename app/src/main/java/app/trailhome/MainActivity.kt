@@ -117,7 +117,10 @@ fun prime(c: Context) {
     val items = listOf(tr("Навигация", "Navigate") to Icons.Default.Explore, tr("Карта", "Map") to Icons.Default.Map,
         tr("Метки", "Marks") to Icons.Default.Place, tr("Настройки", "Settings") to Icons.Default.Settings)
     BackHandler(Store.tab == 4) { Store.tab = 3 }
-    Scaffold(bottomBar = {
+    Scaffold(topBar = {
+        TopAppBar(title = { Text(tabTitle(Store.tab), fontWeight = FontWeight.Bold) },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background))
+    }, bottomBar = {
         NavigationBar { items.forEachIndexed { i, (n, ic) -> NavigationBarItem(Store.tab == i || (i == 3 && Store.tab == 4), { Store.tab = i }, { Icon(ic, n) }, label = { Text(n, maxLines = 1) }) } }
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
@@ -573,4 +576,13 @@ fun openMap(c: Context, lat: Double, lon: Double, name: String) {
     val la = String.format(Locale.US, "%.6f", lat); val lo = String.format(Locale.US, "%.6f", lon)
     val i = Intent.createChooser(Intent(Intent.ACTION_VIEW, Uri.parse("geo:$la,$lo?q=$la,$lo(${Uri.encode(name)})")), tr("Открыть в приложении", "Open with"))
     try { c.startActivity(i) } catch (e: Exception) { Toast.makeText(c, tr("Нет приложений с картами", "No map apps found"), Toast.LENGTH_SHORT).show() }
+}
+
+// Заголовок в верхнем баре; для вкладки «Метки» показывает и старты
+fun tabTitle(t: Int) = when (t) {
+    0 -> tr("Навигация", "Navigate")
+    1 -> tr("Карта", "Map")
+    2 -> tr("Старты и метки", "Starts and marks")
+    3 -> tr("Настройки", "Settings")
+    else -> tr("Статистика трека", "Track stats")
 }

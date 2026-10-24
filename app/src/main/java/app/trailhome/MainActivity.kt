@@ -489,9 +489,9 @@ Tips: allow location "all the time" and disable battery optimization for the app
         }
         Text(if (Store.compass) tr("Направление — по компасу телефона", "Direction from the phone compass") else tr("Направление — по вашему перемещению за интервал (нужно идти)", "Direction from your movement over the interval (keep walking)"), style = MaterialTheme.typography.labelMedium)
         Text(tr("Подсказка не реже чем через: ", "Announce at least every: ") + "${iv.toInt()} ${tr("с", "s")}")
-        Slider(iv, { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }, valueRange = 5f..300f)
+        SliderStep(iv, 5f..300f) { iv = it; sp.edit().putInt("interval", it.toInt()).apply() }
         Text(tr("…или при смещении на: ", "…or after moving: ") + "${dm.toInt()} ${tr("м", "m")}")
-        Slider(dm, { dm = it; sp.edit().putInt("dist", it.toInt()).apply() }, valueRange = 5f..100f)
+        SliderStep(dm, 5f..100f) { dm = it; sp.edit().putInt("dist", it.toInt()).apply() }
         Text(tr("Голос: ", "Voice: ") + vname.ifBlank { "—" }, style = MaterialTheme.typography.labelMedium)
         Seg(listOf(
             SegItem(tr("Проверить", "Test"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },
@@ -585,4 +585,13 @@ fun tabTitle(t: Int) = when (t) {
     2 -> tr("Старты и метки", "Starts and marks")
     3 -> tr("Настройки", "Settings")
     else -> tr("Статистика трека", "Track stats")
+}
+
+// Ползунок с кнопками − и + для точной настройки (шаг 1)
+@Composable fun SliderStep(v: Float, range: ClosedFloatingPointRange<Float>, on: (Float) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton({ on((v.toInt() - 1).toFloat().coerceIn(range)) }) { Icon(Icons.Default.Remove, tr("Меньше", "Less")) }
+        Slider(v, { on(it.toInt().toFloat()) }, Modifier.weight(1f), valueRange = range)
+        IconButton({ on((v.toInt() + 1).toFloat().coerceIn(range)) }) { Icon(Icons.Default.Add, tr("Больше", "More")) }
+    }
 }

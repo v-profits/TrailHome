@@ -27,7 +27,7 @@ object Store {
     var satVisible by mutableIntStateOf(0)
     var satUsed by mutableIntStateOf(0)
     fun switchCompass(on: Boolean) { compass = on; sp?.edit()?.putBoolean("compass", on)?.apply() }
-    var provider by mutableStateOf("auto")
+    var provider by mutableStateOf("google")
     var mapType by mutableStateOf("normal")
     // Направление движения: по компасу или по перемещению за интервал (секунды из настроек)
     fun curHeading(me: Pt): Double? {
@@ -52,7 +52,7 @@ object Store {
         if (dir != null) return
         dir = c.filesDir
         sp = c.getSharedPreferences("s", 0)
-        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L); startId = sp!!.getLong("start", -1L); compass = sp!!.getBoolean("compass", true); provider = sp!!.getString("provider", "auto")!!; mapType = sp!!.getString("maptype", "normal")!!
+        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L); startId = sp!!.getLong("start", -1L); compass = sp!!.getBoolean("compass", true); provider = sp!!.getString("provider", "google")!!; mapType = sp!!.getString("maptype", "normal")!!
         runCatching {
             val a = JSONArray(File(dir, "marks.json").readText())
             for (i in 0 until a.length()) a.getJSONObject(i).let {

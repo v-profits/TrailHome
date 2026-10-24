@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -193,7 +194,7 @@ fun prime(c: Context) {
         { Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); confirmDel = false; onDone() }, { confirmDel = false })
 }
 @Composable fun MapChoices() {
-    Choice(tr("Карта", "Map"), Store.provider, listOf("auto" to tr("Авто", "Auto"), "yandex" to tr("Яндекс", "Yandex"), "google" to "Google", "osm" to "OSM")) {
+    Choice(tr("Карта", "Map"), MapSources.provider(), listOf("google" to "Google", "yandex" to tr("Яндекс", "Yandex"), "osm" to "OSM")) {
         Store.provider = it; Store.sp?.edit()?.putString("provider", it)?.apply()
     }
     Choice(tr("Тип карты", "Map type"), Store.mapType, listOf("normal" to tr("Обычная", "Normal"), "satellite" to tr("Спутниковая", "Satellite"),
@@ -417,7 +418,7 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 
 Радар: верх — туда, куда повёрнут телефон; жёлтая линия — к цели; зелёная ломаная — ваш путь.
 
-Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка со слоями выбирает источник карты (Яндекс, Google, OSM) и тип. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
+Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка со слоями выбирает источник карты (Google, Яндекс, OSM) и тип. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
 
 Метки: нажмите на метку, чтобы изменить название, заметку, координаты или удалить её. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
 
@@ -438,7 +439,7 @@ Satellites: "visible" — how many are above the horizon, "used" — how many ta
 
 Radar: up is where the phone points; the yellow line leads to the target; the green line is your path.
 
-Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The layers button chooses the map source (Yandex, Google, OSM) and type. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
+Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The layers button chooses the map source (Google, Yandex, OSM) and type. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
 
 Marks: tap a mark to edit its name, note, coordinates or delete it. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
 
@@ -449,7 +450,7 @@ The guide and track statistics for an hour, a day and all time are on the Settin
 Tips: allow location "all the time" and disable battery optimization for the app."""
 @Composable fun Choice(title: String, cur: String, opts: List<Pair<String, String>>, on: (String) -> Unit) {
     Text(title, style = MaterialTheme.typography.titleMedium)
-    Seg(opts.map { (k, l) -> SegItem(l, selected = cur == k) { on(k) } })
+    SegFit(opts.map { (k, l) -> SegItem(l, selected = cur == k) { on(k) } })
 }
 @Composable fun SettingsScreen() {
     val ctx = LocalContext.current
@@ -486,10 +487,10 @@ Tips: allow location "all the time" and disable battery optimization for the app
         Text(tr("…или при смещении на: ", "…or after moving: ") + "${dm.toInt()} ${tr("м", "m")}")
         Slider(dm, { dm = it; sp.edit().putInt("dist", it.toInt()).apply() }, valueRange = 5f..100f)
         Text(tr("Голос: ", "Voice: ") + vname.ifBlank { "—" }, style = MaterialTheme.typography.labelMedium)
-        Seg(listOf(
+        SegFit(listOf(
             SegItem(tr("Проверить", "Test"), Icons.Default.VolumeUp, enabled = tts != null) { tts?.let { Speaker.sample(it) } },
             SegItem(tr("Выбрать голос", "Choose voice"), Icons.Default.RecordVoiceOver, enabled = tts != null) { chosen = tts?.voice?.name ?: ""; showVoices = true }))
-        Seg(listOf(
+        SegFit(listOf(
             SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true },
             SegItem(tr("Статистика трека", "Track stats"), Icons.Default.Timeline) { Store.tab = 4 }))
     }
@@ -546,4 +547,13 @@ fun startNav(c: Context) {
 fun goTo(c: Context, id: Long) {
     Store.select(id)
     if (!Store.recording) startNav(c)
+}
+
+// Ряд кнопок для настроек: помещаются — растягиваются на всю ширину равными частями, нет — листаются свайпом
+@Composable fun SegFit(opts: List<SegItem>) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val need = opts.sumOf { 62.0 + it.label.length * 8.5 } + 8 * (opts.size - 1)
+        if (need.dp <= maxWidth) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier.weight(1f), true) } }
+        else Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { opts.forEach { Chip(it, Modifier, false) } }
+    }
 }

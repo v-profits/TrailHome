@@ -30,7 +30,7 @@ object Proj {
 
 // Источники карт. Адреса плиток можно править здесь. Яндекс и Google — неофициальные адреса плиток.
 object MapSources {
-    fun provider() = if (Store.provider == "auto") (if (L.en) "google" else "yandex") else Store.provider
+    fun provider() = if (Store.provider == "auto") "google" else Store.provider
     fun key(): String { val p = provider(); val t = Store.mapType; return p + ":" + (if (p == "yandex" && t == "terrain") "normal" else t) }
 
     private const val YM = "https://core-renderer-tiles.maps.yandex.net/tiles?x={x}&y={y}&z={z}&scale=1&lang=ru_RU&l="

@@ -10,7 +10,7 @@ import java.util.*
 import kotlin.math.*
 
 data class Mark(val id: Long, val name: String, val lat: Double, val lon: Double, val note: String = "", val time: Long = System.currentTimeMillis())
-data class Pt(val lat: Double, val lon: Double, val t: Long)
+data class Pt(val lat: Double, val lon: Double, val t: Long, val trip: Long = 0)
 
 object Store {
     val marks = mutableStateListOf<Mark>()
@@ -23,6 +23,18 @@ object Store {
     var focus by mutableStateOf<Mark?>(null)
     var sp: android.content.SharedPreferences? = null
     var guiding by mutableStateOf(false)
+    var gpsOn by mutableStateOf(false)        // служба GPS работает
+    var autoGps = false                       // GPS включён автоматически (Старт или выбор цели)
+    var showHistory by mutableStateOf(false)  // показывать линии всех маршрутов
+    var viewTrip by mutableLongStateOf(-1L)   // маршрут, выбранный в окне метки или старта
+    var pin by mutableStateOf<Mark?>(null)    // метка, выделенная мишенью на карте
+    fun switchHistory(on: Boolean) { showHistory = on; sp?.edit()?.putBoolean("history", on)?.apply() }
+    // Маршрут (поездка) метки: у старта — его собственный, у обычной метки — тот, на время которого она создана
+    fun tripOf(m: Mark): Long? {
+        if (track.any { it.trip == m.id }) return m.id
+        return track.groupBy { it.trip }.filterKeys { it != 0L }.entries
+            .firstOrNull { (_, p) -> m.time >= p.first().t - 60000 && m.time <= p.last().t + 60000 }?.key
+    }
     var compass by mutableStateOf(true)
     var satVisible by mutableIntStateOf(0)
     var satUsed by mutableIntStateOf(0)
@@ -52,7 +64,7 @@ object Store {
         if (dir != null) return
         dir = c.filesDir
         sp = c.getSharedPreferences("s", 0)
-        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L); startId = sp!!.getLong("start", -1L); compass = sp!!.getBoolean("compass", true); provider = sp!!.getString("provider", "google")!!; mapType = sp!!.getString("maptype", "normal")!!
+        L.mode = sp!!.getString("lang", "system")!!; theme = sp!!.getString("theme", "system")!!; targetId = sp!!.getLong("target", -1L); startId = sp!!.getLong("start", -1L); showHistory = sp!!.getBoolean("history", false); compass = sp!!.getBoolean("compass", true); provider = sp!!.getString("provider", "google")!!; mapType = sp!!.getString("maptype", "normal")!!
         runCatching {
             val a = JSONArray(File(dir, "marks.json").readText())
             for (i in 0 until a.length()) a.getJSONObject(i).let {
@@ -61,7 +73,7 @@ object Store {
         }
         runCatching {
             val a = JSONArray(File(dir, "track.json").readText())
-            for (i in 0 until a.length()) a.getJSONArray(i).let { track.add(Pt(it.getDouble(0), it.getDouble(1), it.getLong(2))) }
+            for (i in 0 until a.length()) a.getJSONArray(i).let { track.add(Pt(it.getDouble(0), it.getDouble(1), it.getLong(2), if (it.length() > 3) it.getLong(3) else 0L)) }
         }
     }
 
@@ -73,7 +85,7 @@ object Store {
 
     fun saveTrack() {
         val a = JSONArray()
-        track.toList().forEach { a.put(JSONArray().put(it.lat).put(it.lon).put(it.t)) }
+        track.toList().forEach { a.put(JSONArray().put(it.lat).put(it.lon).put(it.t).put(it.trip)) }
         runCatching { File(dir, "track.json").writeText(a.toString()) }
     }
 
@@ -88,10 +100,8 @@ object Store {
         val f = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         return buildString {
             append("<?xml version=\"1.0\" encoding=\"UTF-8\"?><gpx version=\"1.1\" creator=\"LesNavigator\" xmlns=\"http://www.topografix.com/GPX/1/1\">")
-            marks.forEach { append("<wpt lat=\"${it.lat}\" lon=\"${it.lon}\"><name>${esc(it.name)}</name><desc>${esc(it.note)}</desc></wpt>") }
-            append("<trk><trkseg>")
-            track.forEach { append("<trkpt lat=\"${it.lat}\" lon=\"${it.lon}\"><time>${f.format(Date(it.t))}</time></trkpt>") }
-            append("</trkseg></trk></gpx>")
+            marks.filter { !isStart(it) }.forEach { append("<wpt lat=\"${it.lat}\" lon=\"${it.lon}\"><name>${esc(it.name)}</name><desc>${esc(it.note)}</desc></wpt>") }
+            append("</gpx>")
         }
     }
 

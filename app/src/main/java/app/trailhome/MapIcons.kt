@@ -12,5 +12,6 @@ class MapIcons(private val c: Context) {
     private val s0 = d(R.drawable.ic_pin_start)
     private val s1 = d(R.drawable.ic_pin_start_target)
     val me = d(R.drawable.ic_me)
+    val focus = d(R.drawable.ic_focus)
     fun pin(start: Boolean, target: Boolean) = if (start) (if (target) s1 else s0) else (if (target) m1 else m0)
 }

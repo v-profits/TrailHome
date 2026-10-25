@@ -32,7 +32,10 @@ class NavService : Service(), LocationListener, SensorEventListener {
     private var started = false
     private val h = android.os.Handler(android.os.Looper.getMainLooper())
     private var nTick = 0
-    private val tick = object : Runnable { override fun run() { speak(); if (++nTick % 5 == 0) (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(1, notif()); h.postDelayed(this, 1000) } }
+    private var newTrip = false
+    private var wasRec = false
+    private var fixed = false
+    private val tick = object : Runnable { override fun run() { tripTick(); speak(); if (++nTick % 5 == 0) (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(1, notif()); h.postDelayed(this, 1000) } }
 
     override fun onBind(i: Intent?): IBinder? = null
 
@@ -48,7 +51,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         val n = notif()
         ServiceCompat.startForeground(this, 1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         Store.init(this)
-        Store.recording = true
+        Store.gpsOn = true
         h.post(tick)
         if (!Store.guiding) Store.select(-1)   // цель, выбранная до старта, сохраняется; иначе — тишина и без цели
         tts = TextToSpeech(this) {
@@ -56,8 +59,8 @@ class NavService : Service(), LocationListener, SensorEventListener {
                 Speaker.pick(t, this)
                 t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) {}
-                    override fun onDone(id: String?) { if (id == "arrive") h.post { stopSelf() } }
-                    @Deprecated("Deprecated in Java") override fun onError(id: String?) { if (id == "arrive") h.post { stopSelf() } }
+                    override fun onDone(id: String?) { if (id == "arrive") h.post { finishTrip() } }
+                    @Deprecated("Deprecated in Java") override fun onError(id: String?) { if (id == "arrive") h.post { finishTrip() } }
                 })
             }
         }
@@ -74,7 +77,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
     private fun notif(): Notification {
         val t = Store.target(); val me = Store.loc
         val text = (if (Store.guiding && t != null && me != null) tr("Ведёт к цели: ", "Guiding to: ") + t.name + " · " + Geo.fmt(Geo.dist(me.lat, me.lon, t.lat, t.lon))
-            else tr("Запись маршрута", "Recording route")) + " · " + tr("спутники ", "satellites ") + "${Store.satUsed}/${Store.satVisible}"
+            else if (Store.recording) tr("Запись маршрута", "Recording route") else tr("GPS работает", "GPS is on")) + " · " + tr("спутники ", "satellites ") + "${Store.satUsed}/${Store.satVisible}"
         return Notification.Builder(this, "nav").setContentTitle(tr("TrailHome: GPS включён", "TrailHome: GPS on")).setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation).setOngoing(true).setOnlyAlertOnce(true)
             .setContentIntent(PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
@@ -83,16 +86,38 @@ class NavService : Service(), LocationListener, SensorEventListener {
             .build()
     }
 
+    // Старт маршрута: метка «Старт №N …» в первой точке записи
+    private fun makeStart(p: Pt) {
+        val k = Store.marks.count { it.name.startsWith("Старт") || it.name.startsWith("Start") } + 1
+        Store.addMark(tr("Старт", "Start") + " №" + k + " · " + SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date()), p.lat, p.lon)
+        Store.markStart(Store.marks.last().id)
+    }
+
+    // Следим за кнопкой «Старт/Стоп»: запись включается и выключается отдельно от GPS
+    private fun tripTick() {
+        val r = Store.recording
+        if (r && !wasRec) {
+            val p = Store.loc
+            if (fixed && p != null) { makeStart(p); Store.track.add(p.copy(trip = Store.startId)) } else newTrip = true
+        }
+        if (!r && wasRec) { newTrip = false; Store.saveTrack() }
+        wasRec = r
+    }
+
+    // Конец поездки у стартовой точки: запись и цель сбрасываются, GPS выключается, если его включили автоматически
+    private fun finishTrip() {
+        Store.recording = false; Store.select(-1)
+        if (Store.autoGps) { Store.autoGps = false; stopSelf() }
+    }
+
     override fun onLocationChanged(l: Location) {
         val p = Pt(l.latitude, l.longitude, System.currentTimeMillis())
-        Store.loc = p
-        if (first) {
-            first = false
-            Store.addMark(tr("Старт", "Start") + " №" + (Store.marks.count { it.name.startsWith("Старт") || it.name.startsWith("Start") } + 1) + " · " + SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(Date()), p.lat, p.lon)
-            Store.markStart(Store.marks.last().id)
+        Store.loc = p; fixed = true
+        if (Store.recording) {
+            if (newTrip) { newTrip = false; makeStart(p) }
+            Store.track.add(p.copy(trip = Store.startId))
+            if (Store.track.size % 10 == 0) Store.saveTrack()
         }
-        Store.track.add(p)
-        if (Store.track.size % 10 == 0) Store.saveTrack()
         speak()
     }
 
@@ -107,7 +132,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
             // у стартовой точки запись останавливается сама (если вы от неё отходили)
             val home = Store.isStart(t) && Store.track.any { Geo.dist(it.lat, it.lon, t.lat, t.lon) > 50 }
             if (voice) tts?.speak(tr("На месте", "Arrived"), TextToSpeech.QUEUE_FLUSH, null, if (home) "arrive" else "n")
-            if (home) h.postDelayed({ stopSelf() }, if (voice) 6000L else 0L)
+            if (home) h.postDelayed({ finishTrip() }, if (voice) 6000L else 0L)
             return
         }
         if (!voice) return
@@ -133,7 +158,7 @@ class NavService : Service(), LocationListener, SensorEventListener {
         (getSystemService(LOCATION_SERVICE) as LocationManager).removeUpdates(this)
         (getSystemService(LOCATION_SERVICE) as LocationManager).unregisterGnssStatusCallback(gnss); Store.satVisible = 0; Store.satUsed = 0
         (getSystemService(SENSOR_SERVICE) as SensorManager).unregisterListener(this)
-        h.removeCallbacks(tick); tts?.shutdown(); Store.saveTrack(); Store.recording = false; Store.select(-1); Store.select(-1)
+        h.removeCallbacks(tick); tts?.shutdown(); Store.saveTrack(); Store.recording = false; Store.gpsOn = false; Store.autoGps = false; Store.select(-1); Store.select(-1)
         super.onDestroy()
     }
 }

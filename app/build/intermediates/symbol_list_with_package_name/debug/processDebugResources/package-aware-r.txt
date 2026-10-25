@@ -20,6 +20,7 @@ color androidx_core_ripple_material_light
 color androidx_core_secondary_text_default_material_light
 color call_notification_answer_color
 color call_notification_decline_color
+color focus_red
 color ic_bg
 color me_dot
 color me_halo
@@ -64,6 +65,7 @@ drawable ic_call_answer_video
 drawable ic_call_answer_video_low
 drawable ic_call_decline
 drawable ic_call_decline_low
+drawable ic_focus
 drawable ic_foreground
 drawable ic_me
 drawable ic_menu_compass

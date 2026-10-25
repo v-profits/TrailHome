@@ -21,6 +21,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -52,6 +53,7 @@ import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.views.CustomZoomButtonsController
@@ -169,20 +171,25 @@ fun prime(c: Context) {
 @Composable fun MarkDialog(m: Mark?, lat0: Double?, lon0: Double?, onDone: () -> Unit) {
     val ctx = LocalContext.current
     var confirmDel by remember { mutableStateOf(false) }
+    var createFrom by remember { mutableStateOf(false) }
     fun f(d: Double?) = d?.let { String.format(Locale.US, "%.6f", it) } ?: ""
     var n by remember { mutableStateOf(m?.name ?: "") }; var note by remember { mutableStateOf(m?.note ?: "") }
     var la by remember { mutableStateOf(f(m?.lat ?: lat0 ?: Store.loc?.lat)) }; var lo by remember { mutableStateOf(f(m?.lon ?: lon0 ?: Store.loc?.lon)) }
+    val trip = remember(m?.id) { m?.let { Store.tripOf(it) } }
     LaunchedEffect(Store.loc) { if (m == null && lat0 == null && la.isBlank()) Store.loc?.let { la = f(it.lat); lo = f(it.lon) } }
-    AlertDialog(onDone, title = { Text(if (m == null) tr("Новая метка", "New mark") else tr("Метка", "Mark")) }, text = {
+    AlertDialog(onDone, title = { Text(if (m == null) tr("Новая метка", "New mark") else if (Store.isStart(m)) tr("Старт", "Start") else tr("Метка", "Mark")) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             VoiceField(n, { n = it }, tr("Название", "Name"))
             VoiceField(note, { note = it }, tr("Заметка", "Note"), append = true, multiline = true)
             VoiceField(la, { la = it }, tr("Широта", "Latitude"), KeyboardType.Decimal)
             VoiceField(lo, { lo = it }, tr("Долгота", "Longitude"), KeyboardType.Decimal)
-            if (m != null) Seg(listOf(
-                SegItem(tr("Цель", "Target"), Icons.Default.Navigation) { goTo(ctx, m.id); Store.tab = 0; onDone() },
-                SegItem(tr("Навигатор", "Navigator"), Icons.Default.Directions) { openMap(ctx, la.replace(',', '.').toDoubleOrNull() ?: m.lat, lo.replace(',', '.').toDoubleOrNull() ?: m.lon, n.ifBlank { m.name }) },
-                SegItem(tr("Удалить", "Delete"), Icons.Default.Delete) { confirmDel = true }))
+            if (m != null) Seg(buildList {
+                add(SegItem(tr("Цель", "Target"), Icons.Default.Navigation) { goTo(ctx, m.id); Store.tab = 0; onDone() })
+                add(SegItem(tr("Навигатор", "Navigator"), Icons.Default.Directions) { openMap(ctx, la.replace(',', '.').toDoubleOrNull() ?: m.lat, lo.replace(',', '.').toDoubleOrNull() ?: m.lon, n.ifBlank { m.name }) })
+                add(SegItem(tr("Маршрут", "Route"), Icons.Default.Timeline, enabled = trip != null) { Store.viewTrip = trip!!; Store.tab = 1; onDone() })
+                if (Store.isStart(m)) add(SegItem(tr("Создать метку", "Create mark"), Icons.Default.AddLocation) { createFrom = true })
+                add(SegItem(tr("Удалить", "Delete"), Icons.Default.Delete, danger = true) { confirmDel = true })
+            })
         }
     }, confirmButton = {
         TextButton({
@@ -195,8 +202,9 @@ fun prime(c: Context) {
             }
         }) { Text(tr("Сохранить", "Save")) }
     }, dismissButton = { TextButton(onDone) { Text(tr("Отмена", "Cancel")) } })
-    if (confirmDel && m != null) ConfirmDialog(tr("Удалить метку «", "Delete mark \"") + m.name + tr("»?", "\"?"),
+    if (confirmDel && m != null) ConfirmDialog(tr("Удалить «", "Delete \"") + m.name + tr("»?", "\"?"),
         { Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); confirmDel = false; onDone() }, { confirmDel = false })
+    if (createFrom && m != null) MarkDialog(null, m.lat, m.lon) { createFrom = false; onDone() }
 }
 @Composable fun MapChoices() {
     Choice(tr("Карта", "Map"), MapSources.provider(), listOf("google" to "Google", "yandex" to tr("Яндекс", "Yandex"), "osm" to "OSM")) {
@@ -226,9 +234,17 @@ fun prime(c: Context) {
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
         }
     }
-    DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach() } }
+    DisposableEffect(Unit) { map.onResume(); onDispose { map.onPause(); map.onDetach(); Store.pin = null } }
     LaunchedEffect(key) { Store.loc?.let { map.controller.setCenter(GeoPoint(Proj.f(it.lat), it.lon)) } }
     LaunchedEffect(Store.focus) { Store.focus?.let { map.controller.setZoom(17.0); map.controller.animateTo(GeoPoint(Proj.f(it.lat), it.lon)); Store.focus = null } }
+    // «Маршрут» из окна метки или старта: показать путь от старта до стопа
+    LaunchedEffect(Store.viewTrip) {
+        val id = Store.viewTrip
+        if (id != -1L) {
+            val pts = Store.track.filter { it.trip == id }.map { GeoPoint(Proj.f(it.lat), it.lon) }
+            if (pts.size >= 2) map.post { map.zoomToBoundingBox(BoundingBox.fromGeoPoints(pts), false, 120) } else pts.firstOrNull()?.let { map.controller.animateTo(it) }
+        }
+    }
     LaunchedEffect(map) { snapshotFlow { if (Store.compass) -Store.azimuth else 0f }.collect { if (abs(map.mapOrientation - it) > 2f) map.mapOrientation = it } }
     Box(Modifier.fillMaxSize()) {
         AndroidView({ map }, Modifier.fillMaxSize(), update = { m ->
@@ -236,16 +252,26 @@ fun prime(c: Context) {
             m.overlays.clear()
             labels?.let { m.overlays.add(it) }
             m.overlays.add(MapEventsOverlay(object : MapEventsReceiver {
-                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { pending = GeoPoint(Proj.inv(p.latitude), p.longitude); return true }
-                override fun longPressHelper(p: GeoPoint): Boolean { pending = GeoPoint(Proj.inv(p.latitude), p.longitude); return true }
+                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean { Store.pin = null; pending = GeoPoint(Proj.inv(p.latitude), p.longitude); return true }
+                override fun longPressHelper(p: GeoPoint): Boolean { Store.pin = null; pending = GeoPoint(Proj.inv(p.latitude), p.longitude); return true }
             }))
-            val pts = Store.track.takeLast(3000).map { GeoPoint(Proj.f(it.lat), it.lon) }
-            m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = 0xFFFFFFFF.toInt(); outlinePaint.strokeWidth = 17f; setOnClickListener { _, _, _ -> false } })
-            m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = 0xFFD81B60.toInt(); outlinePaint.strokeWidth = 9f; setOnClickListener { _, _, _ -> false } })
+            // линии маршрутов: все (кнопка «История») или только текущий старт / цель-старт и маршрут, выбранный в окне метки
+            val ids: Set<Long> = if (Store.showHistory) Store.track.map { it.trip }.toSet()
+            else setOfNotNull(Store.target()?.takeIf { Store.isStart(it) }?.id ?: Store.startId.takeIf { it != -1L }, Store.viewTrip.takeIf { it != -1L })
+            for (id in ids) {
+                val pts = Store.track.filter { it.trip == id }.takeLast(3000).map { GeoPoint(Proj.f(it.lat), it.lon) }
+                if (pts.size > 1) {
+                    m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = 0xFFFFFFFF.toInt(); outlinePaint.strokeWidth = 17f; setOnClickListener { _, _, _ -> false } })
+                    m.overlays.add(Polyline().apply { setPoints(pts); outlinePaint.color = if (id == Store.viewTrip) 0xFF2962FF.toInt() else 0xFFD81B60.toInt(); outlinePaint.strokeWidth = 9f; setOnClickListener { _, _, _ -> false } })
+                }
+            }
+            Store.pin?.let { pm -> m.overlays.add(Marker(m).apply {
+                position = GeoPoint(Proj.f(pm.lat), pm.lon); icon = ic.focus
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER); setOnMarkerClickListener { _, _ -> false }
+            }) }
             Store.marks.sortedBy { it.id == Store.targetId }.forEach { mk ->
-                val start = mk.id == Store.startId || mk.name.startsWith("Старт") || mk.name.startsWith("Start")
                 m.overlays.add(Marker(m).apply {
-                    position = GeoPoint(Proj.f(mk.lat), mk.lon); title = mk.name; icon = ic.pin(start, mk.id == Store.targetId)
+                    position = GeoPoint(Proj.f(mk.lat), mk.lon); title = mk.name; icon = ic.pin(Store.isStart(mk), mk.id == Store.targetId)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                     setOnMarkerClickListener { _, _ -> sel = mk; true }
                 })
@@ -256,14 +282,21 @@ fun prime(c: Context) {
             }) }
             m.invalidate()
         })
+        SmallFloatingActionButton({ map.controller.zoomIn() }, Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 72.dp)) { Icon(Icons.Default.Add, "+") }
+        SmallFloatingActionButton({ map.controller.zoomOut() }, Modifier.align(Alignment.BottomStart).padding(16.dp)) { Icon(Icons.Default.Remove, "−") }
+        SmallFloatingActionButton({
+            Store.switchHistory(!Store.showHistory); Store.viewTrip = -1
+            Toast.makeText(ctx, if (Store.showHistory) tr("История маршрутов показана", "Route history shown") else tr("История маршрутов скрыта", "Route history hidden"), Toast.LENGTH_SHORT).show()
+        }, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 184.dp),
+            containerColor = if (Store.showHistory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant) { Icon(Icons.Default.History, tr("История маршрутов", "Route history")) }
         SmallFloatingActionButton({ Store.switchCompass(!Store.compass) }, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 128.dp),
             containerColor = if (Store.compass) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant) { Icon(Icons.Default.Explore, tr("Компас", "Compass")) }
         SmallFloatingActionButton({ opts = true }, Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 72.dp)) { Icon(Icons.Default.Layers, tr("Слои", "Layers")) }
-        Surface(Modifier.align(Alignment.TopStart).padding(8.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .85f)) {
-            Text(satText(), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
-        }
         SmallFloatingActionButton({ Store.loc?.let { map.controller.animateTo(GeoPoint(Proj.f(it.lat), it.lon)) } }, Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
             Icon(Icons.Default.MyLocation, tr("Я здесь", "My location"))
+        }
+        Surface(Modifier.align(Alignment.TopStart).padding(8.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .85f)) {
+            Text(satText(), Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelMedium)
         }
     }
     if (opts) AlertDialog({ opts = false }, title = { Text(tr("Карта", "Map")) },
@@ -305,30 +338,44 @@ fun prime(c: Context) {
         Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(24.dp)) {
             Radar(Modifier.fillMaxWidth().aspectRatio(1f).padding(12.dp))
         }
-        Text(satText(), style = MaterialTheme.typography.labelMedium)
+        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(10.dp), Alignment.CenterVertically) {
+            Chip(SegItem("GPS", if (Store.gpsOn) Icons.Default.GpsFixed else Icons.Default.GpsOff, Store.gpsOn) { toggleGps(ctx) }, Modifier, false)
+            Text(satText(), style = MaterialTheme.typography.labelMedium)
+        }
         if (me != null && t != null) {
             val d = Geo.dist(me.lat, me.lon, t.lat, t.lon)
-            Text(if (d < 15) tr("На месте", "Arrived") else Store.curHeading(me)?.let { turnText(Geo.rel(me, t, it)) } ?: tr("Идите — определю направление", "Keep moving to get a direction"), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+            Text(if (d < 15) tr("На месте", "Arrived") else Store.curHeading(me)?.let { turnText(Geo.rel(me, t, it)) } ?: tr("Идите — определю направление", "Keep moving to get a direction"),
+                style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
             Text(t.name + " · " + Geo.fmt(d), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(if (Store.guiding) tr("Голосовые подсказки включены", "Voice guidance on") else tr("Подсказки выключены", "Guidance off"), style = MaterialTheme.typography.labelMedium)
         } else Text(
-            if (!Store.recording) tr("Нажмите «Старт», чтобы начать запись маршрута", "Press Start to begin recording your route")
+            if (!Store.gpsOn) tr("Включите GPS или нажмите «Старт», чтобы записывать маршрут", "Turn on GPS or press Start to record your route")
             else if (me == null) tr("Ищу спутники…", "Searching for satellites…")
-            else tr("Идёт запись, подсказки молчат. Выберите цель, чтобы вернуться", "Recording quietly. Choose a target to go back"))
-        Seg(listOf(
-            SegItem(if (Store.recording) tr("Стоп", "Stop") else tr("Старт", "Start"), if (Store.recording) Icons.Default.Stop else Icons.Default.PlayArrow, Store.recording) {
-                val i = Intent(ctx, NavService::class.java)
-                if (Store.recording) ctx.stopService(i) else startNav(ctx)
-            },
-            SegItem(tr("Метка", "Mark"), Icons.Default.MyLocation) { add = true },
-            SegItem(tr("Компас", "Compass"), Icons.Default.Explore, selected = Store.compass) { Store.switchCompass(!Store.compass) }), fill = true)
-        Seg(listOf(
-            SegItem(tr("К старту", "To start"), Icons.Default.Home, enabled = st != null) { goTo(ctx, st!!.id) },
-            SegItem(tr("Цель", "Target"), Icons.Default.Place) { pick = true },
-            SegItem(if (Store.guiding) tr("Тишина", "Silence") else tr("Голос", "Voice"), if (Store.guiding) Icons.Default.VolumeOff else Icons.Default.VolumeUp, selected = !Store.guiding && t != null, enabled = t != null) { Store.guiding = !Store.guiding }), fill = true)
+            else if (Store.recording) tr("Идёт запись, подсказки молчат. Выберите цель, чтобы вернуться", "Recording quietly. Choose a target to go back")
+            else tr("GPS работает. Выберите цель или нажмите «Старт»", "GPS is on. Choose a target or press Start"))
+        // три пары кнопок: линия между кнопками показывает связь
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PairCol(
+                SegItem(if (Store.recording) tr("Стоп", "Stop") else tr("Старт", "Start"), selected = Store.recording) { if (Store.recording) stopRecording(ctx) else startRecording(ctx) },
+                SegItem(tr("К старту", "To start"), enabled = st != null) { goTo(ctx, st!!.id) }, Modifier.weight(1f))
+            PairCol(
+                SegItem(tr("Метка", "Mark")) { add = true },
+                SegItem(tr("Цель", "Target")) { pick = true }, Modifier.weight(1f))
+            PairCol(
+                SegItem(tr("Компас", "Compass"), selected = Store.compass) { Store.switchCompass(!Store.compass) },
+                SegItem(if (Store.guiding) tr("Тишина", "Silence") else tr("Голос", "Voice"), selected = !Store.guiding && t != null, enabled = t != null) { Store.guiding = !Store.guiding }, Modifier.weight(1f))
+        }
     }
     if (add) MarkDialog(null, null, null) { add = false }
     if (pick) TargetDialog { pick = false }
+}
+
+@Composable fun PairCol(a: SegItem, b: SegItem, mod: Modifier) {
+    Column(mod, horizontalAlignment = Alignment.CenterHorizontally) {
+        Chip(a, Modifier.fillMaxWidth(), true, false)
+        Box(Modifier.width(2.dp).height(12.dp).background(MaterialTheme.colorScheme.outline))
+        Chip(b, Modifier.fillMaxWidth(), true, false)
+    }
 }
 @Composable fun MarksScreen() {
     val ctx = LocalContext.current
@@ -347,14 +394,14 @@ fun prime(c: Context) {
     val shown = Store.marks.filter { Store.isStart(it) == starts && (it.name.contains(q, true) || it.note.contains(q, true)) }.let { if (starts) it.reversed() else it }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Seg(listOf(
-            SegItem(tr("Метки", "Marks") + " ($nMarks)", selected = !starts) { starts = false },
-            SegItem(tr("Старты", "Starts") + " ($nStarts)", selected = starts) { starts = true }), fill = true)
+            SegItem(tr("Старты", "Starts") + " ($nStarts)", selected = starts) { starts = true },
+            SegItem(tr("Метки", "Marks") + " ($nMarks)", selected = !starts) { starts = false }), fill = true)
         VoiceField(q, { q = it }, if (starts) tr("Поиск старта", "Search starts") else tr("Поиск метки", "Search marks"))
         if (!starts) Seg(listOf(
             SegItem(tr("Метка", "Mark"), Icons.Default.Add) { add = true },
             SegItem(tr("Экспорт", "Export"), Icons.Default.FileUpload) { exp.launch("trailhome.gpx") },
             SegItem(tr("Импорт", "Import"), Icons.Default.FileDownload) { imp.launch(arrayOf("*/*")) }), fill = true)
-        else Seg(listOf(SegItem(tr("Очистить старты", "Clear starts"), Icons.Default.Delete, enabled = nStarts > 0) { clear = true }))
+        else Seg(listOf(SegItem(tr("Очистить старты", "Clear starts"), Icons.Default.Delete, enabled = nStarts > 0, danger = true) { clear = true }))
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(shown, key = { it.id }) { m ->
                 Card({ edit = m }, colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant), shape = RoundedCornerShape(18.dp)) {
@@ -365,7 +412,7 @@ fun prime(c: Context) {
                             Text("%.5f, %.5f".format(Locale.US, m.lat, m.lon), style = MaterialTheme.typography.labelSmall)
                             Store.loc?.let { Text(Geo.fmt(Geo.dist(it.lat, it.lon, m.lat, m.lon)), color = MaterialTheme.colorScheme.secondary) }
                         }
-                        IconButton({ Store.focus = m; Store.tab = 1 }) { Icon(Icons.Default.Map, tr("На карте", "On map")) }
+                        IconButton({ Store.focus = m; Store.pin = m; Store.tab = 1 }) { Icon(Icons.Default.Map, tr("На карте", "On map")) }
                         IconButton({
                             goTo(ctx, m.id); Store.tab = 0
                             Toast.makeText(ctx, tr("Цель: ", "Target: ") + m.name, Toast.LENGTH_SHORT).show()
@@ -408,10 +455,11 @@ fun prime(c: Context) {
         }
         Text(if (p == 2) tr("По дням", "By day") else tr("По периодам", "By period"), style = MaterialTheme.typography.titleMedium)
         by.forEach { (k, v) -> Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween) { Text(k); Text(Geo.fmt(v), color = MaterialTheme.colorScheme.secondary) } }
-        Seg(listOf(SegItem(tr("Очистить трек", "Clear track"), Icons.Default.Delete) { Store.track.clear(); Store.saveTrack() }))
+        Seg(listOf(SegItem(tr("Очистить трек", "Clear track"), Icons.Default.Delete, danger = true) { Store.track.clear(); Store.saveTrack() }))
     }
 }
-const val HELP_RU = """1. «Навигация» → «Старт»: начинается запись маршрута. Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
+const val HELP_RU = """0. Кнопка «GPS» включает определение места (виден счётчик спутников) без записи маршрута.
+1. «Навигация» → «Старт»: начинается запись маршрута (GPS включится сам). Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
 2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. GPS включится сам, если он выключен. С этого момента голос подсказывает по-простому: «Развернитесь», «Поверните направо», «Держитесь правее на 30 градусов» — и называет расстояние до цели. Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
 3. Кнопка «Тишина» выключает подсказки (запись маршрута продолжается), кнопка «Голос» включает их снова. Интервал подсказок меняется в настройках.
 
@@ -423,7 +471,7 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 
 Радар: верх — туда, куда повёрнут телефон; жёлтая линия — к цели; зелёная ломаная — ваш путь.
 
-Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка со слоями выбирает источник карты (Google, Яндекс, OSM) и тип. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
+Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка со слоями выбирает источник карты (Google, Яндекс, OSM) и тип; «+» и «−» — масштаб; «История» показывает или скрывает линии всех маршрутов (по умолчанию скрыты — видна только линия текущего старта). Кнопка «Маршрут» в окне метки или старта показывает путь от старта до стопа. Значок карты в списке выделяет метку мишенью. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
 
 Метки: нажмите на метку или старт — откроется окно с названием, заметкой и координатами. «Цель» ведёт к метке, «Навигатор» открывает список приложений с картами для маршрута до этих координат (например, на авто), «Удалить» удаляет метку после подтверждения. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
 
@@ -432,7 +480,8 @@ const val HELP_RU = """1. «Навигация» → «Старт»: начин�
 Инструкция и статистика трека за час, сутки и всё время — на вкладке «Настройки». Микрофон есть в каждом поле ввода.
 
 Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
-const val HELP_EN = """1. Navigate → Start: route recording begins. The app stays silent and only records the track. A "Start #N …" mark is created at your position.
+const val HELP_EN = """0. The "GPS" button turns on positioning (satellite count shown) without recording a route.
+1. Navigate → Start: route recording begins (GPS turns on by itself). The app stays silent and only records the track. A "Start #N …" mark is created at your position.
 2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. GPS turns on by itself if it was off. From then on the voice gives plain instructions: "Turn around", "Turn right", "Bear right by 30 degrees" — and the distance to the target. When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
 3. "Silence" turns guidance off while the route keeps recording; "Voice" turns it back on. The guidance interval is set in Settings.
 
@@ -444,7 +493,7 @@ Satellites: "visible" — how many are above the horizon, "used" — how many ta
 
 Radar: up is where the phone points; the yellow line leads to the target; the green line is your path.
 
-Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The layers button chooses the map source (Google, Yandex, OSM) and type. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
+Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The layers button chooses the map source (Google, Yandex, OSM) and type; "+" and "−" zoom; "History" shows or hides the lines of all routes (hidden by default — only the current start's line is shown). The "Route" button in a mark or start window shows the path from start to stop. The map icon in the list highlights the mark with a target ring. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
 
 Marks: tap a mark or a start to open a window with its name, note and coordinates. "Target" guides you to it, "Navigator" opens the list of map apps for a route to those coordinates (e.g. by car), "Delete" removes the mark after confirmation. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
 
@@ -514,13 +563,13 @@ Tips: allow location "all the time" and disable battery optimization for the app
         }, dismissButton = { TextButton({ Speaker.pick(x, ctx); showVoices = false }) { Text(tr("Отмена", "Cancel")) } })
     }
 }
-data class SegItem(val label: String, val icon: ImageVector? = null, val selected: Boolean = false, val enabled: Boolean = true, val onClick: () -> Unit)
-
+data class SegItem(val label: String, val icon: ImageVector? = null, val selected: Boolean = false, val enabled: Boolean = true, val danger: Boolean = false, val onClick: () -> Unit)
 @Composable fun Chip(o: SegItem, mod: Modifier, center: Boolean, icons: Boolean = true) {
     FilterChip(o.selected, o.onClick, {
         Text(o.label, if (center) Modifier.fillMaxWidth() else Modifier, maxLines = 1, overflow = TextOverflow.Ellipsis,
             textAlign = if (center) TextAlign.Center else null, style = if (center) MaterialTheme.typography.labelMedium else LocalTextStyle.current)
     }, mod, enabled = o.enabled,
+        colors = if (o.danger) FilterChipDefaults.filterChipColors(labelColor = MaterialTheme.colorScheme.error, iconColor = MaterialTheme.colorScheme.error) else FilterChipDefaults.filterChipColors(),
         leadingIcon = if (icons && o.icon != null) { { Icon(o.icon, null, Modifier.size(18.dp)) } }
             else if (!center && o.selected) { { Icon(Icons.Default.Check, null, Modifier.size(18.dp)) } } else null)
 }
@@ -545,24 +594,40 @@ data class SegItem(val label: String, val icon: ImageVector? = null, val selecte
     }, confirmButton = { TextButton(onDone) { Text(tr("Закрыть", "Close")) } })
 }
 
-fun satText() = if (Store.recording) tr("Спутники: видно ${Store.satVisible}, используется ${Store.satUsed}", "Satellites: ${Store.satVisible} visible, ${Store.satUsed} used")
-else tr("GPS выключен — нажмите «Старт»", "GPS off — press Start")
+fun satText() = if (Store.gpsOn) tr("Спутники: видно ${Store.satVisible}, используется ${Store.satUsed}", "Satellites: ${Store.satVisible} visible, ${Store.satUsed} used")
+else tr("GPS выключен", "GPS off")
 
 // Запуск GPS и записи; без разрешения на геолокацию сервис не стартует
-fun startNav(c: Context) {
+fun startNav(c: Context): Boolean {
     if (c.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-        Toast.makeText(c, tr("Разрешите доступ к геолокации в настройках телефона", "Allow location access in the phone settings"), Toast.LENGTH_LONG).show(); return
+        Toast.makeText(c, tr("Разрешите доступ к геолокации в настройках телефона", "Allow location access in the phone settings"), Toast.LENGTH_LONG).show(); return false
     }
-    c.startForegroundService(Intent(c, NavService::class.java))
+    c.startForegroundService(Intent(c, NavService::class.java)); return true
+}
+
+// Кнопка GPS: включает/выключает определение места без записи маршрута
+fun toggleGps(c: Context) {
+    if (Store.gpsOn) { Store.recording = false; Store.autoGps = false; c.stopService(Intent(c, NavService::class.java)) }
+    else { Store.autoGps = false; startNav(c) }
+}
+
+// Старт: запись маршрута (GPS включится сам, если был выключен)
+fun startRecording(c: Context) {
+    if (!Store.gpsOn) { if (!startNav(c)) return; Store.autoGps = true }
+    Store.recording = true
+}
+
+// Стоп: конец записи и сброс цели; GPS выключается, если его включил «Старт» или выбор цели
+fun stopRecording(c: Context) {
+    Store.recording = false; Store.select(-1)
+    if (Store.autoGps) { Store.autoGps = false; c.stopService(Intent(c, NavService::class.java)) }
 }
 
 // Выбор цели: включает подсказки и, если GPS выключен, запускает его
 fun goTo(c: Context, id: Long) {
     Store.select(id)
-    if (!Store.recording) startNav(c)
+    if (!Store.gpsOn && startNav(c)) Store.autoGps = true
 }
-
-// Ряд кнопок для настроек: помещаются — растягиваются на всю ширину равными частями, нет — листаются свайпом
 @Composable fun SegFit(opts: List<SegItem>) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val need = opts.sumOf { 62.0 + it.label.length * 8.5 } + 8 * (opts.size - 1)

@@ -20,7 +20,8 @@ color androidx_core_ripple_material_light
 color androidx_core_secondary_text_default_material_light
 color call_notification_answer_color
 color call_notification_decline_color
-color focus_red
+color focus_color
+color focus_halo
 color ic_bg
 color me_dot
 color me_halo

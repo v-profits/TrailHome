@@ -20,6 +20,10 @@
         "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_pin_start.xml"
     },
     {
+        "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_focus.xml.flat",
+        "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_focus.xml"
+    },
+    {
         "merged": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-debug-41:\\drawable_ic_foreground.xml.flat",
         "source": "C:\\Users\\user\\.gradle\\daemon\\9.0.0\\app.trailhome.app-main-43:\\drawable\\ic_foreground.xml"
     },

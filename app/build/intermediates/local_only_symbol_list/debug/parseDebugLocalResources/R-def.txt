@@ -1,6 +1,7 @@
 R_DEF: Internal format may change without notice
 local
-color focus_red
+color focus_color
+color focus_halo
 color ic_bg
 color me_dot
 color me_halo

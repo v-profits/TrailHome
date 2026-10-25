@@ -19,7 +19,8 @@ int color androidx_core_ripple_material_light 0x7f020000
 int color androidx_core_secondary_text_default_material_light 0x7f020001
 int color call_notification_answer_color 0x7f020002
 int color call_notification_decline_color 0x7f020003
-int color focus_red 0x7f020011
+int color focus_color 0x7f020012
+int color focus_halo 0x7f020013
 int color ic_bg 0x7f020004
 int color me_dot 0x7f020009
 int color me_halo 0x7f02000a

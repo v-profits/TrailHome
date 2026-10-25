@@ -29,6 +29,13 @@ object Store {
     var viewTrip by mutableLongStateOf(-1L)   // маршрут, выбранный в окне метки или старта
     var pin by mutableStateOf<Mark?>(null)    // метка, выделенная мишенью на карте
     fun switchHistory(on: Boolean) { showHistory = on; sp?.edit()?.putBoolean("history", on)?.apply() }
+    // «Стоп» горит, пока идёт запись, подсказки или GPS, включённый автоматически
+    val busy: Boolean get() = recording || guiding || (gpsOn && autoGps)
+    // Какие маршруты рисовать: при скрытой истории — запись от нажатого «Старт», маршрут старта-цели и выбранный в окне метки
+    fun visibleTrips(): Set<Long> = if (showHistory) track.map { it.trip }.toSet() else setOfNotNull(
+        if (recording && startId != -1L) startId else null,
+        target()?.takeIf { isStart(it) }?.id,
+        viewTrip.takeIf { it != -1L })
     // Маршрут (поездка) метки: у старта — его собственный, у обычной метки — тот, на время которого она создана
     fun tripOf(m: Mark): Long? {
         if (track.any { it.trip == m.id }) return m.id

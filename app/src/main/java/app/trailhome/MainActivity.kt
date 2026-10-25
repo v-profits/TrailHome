@@ -190,6 +190,7 @@ fun prime(c: Context) {
                 if (Store.isStart(m)) add(SegItem(tr("Создать метку", "Create mark"), Icons.Default.AddLocation) { createFrom = true })
                 add(SegItem(tr("Удалить", "Delete"), Icons.Default.Delete, danger = true) { confirmDel = true })
             })
+            if (m != null && trip == null) Text(tr("Для этой метки нет записанного маршрута: маршрут пишется после нажатия «Старт»", "No recorded route for this mark: routes are recorded after pressing Start"), style = MaterialTheme.typography.labelMedium)
         }
     }, confirmButton = {
         TextButton({
@@ -256,8 +257,7 @@ fun prime(c: Context) {
                 override fun longPressHelper(p: GeoPoint): Boolean { Store.pin = null; pending = GeoPoint(Proj.inv(p.latitude), p.longitude); return true }
             }))
             // линии маршрутов: все (кнопка «История») или только текущий старт / цель-старт и маршрут, выбранный в окне метки
-            val ids: Set<Long> = if (Store.showHistory) Store.track.map { it.trip }.toSet()
-            else setOfNotNull(Store.target()?.takeIf { Store.isStart(it) }?.id ?: Store.startId.takeIf { it != -1L }, Store.viewTrip.takeIf { it != -1L })
+            val ids = Store.visibleTrips()
             for (id in ids) {
                 val pts = Store.track.filter { it.trip == id }.takeLast(3000).map { GeoPoint(Proj.f(it.lat), it.lon) }
                 if (pts.size > 1) {
@@ -322,8 +322,10 @@ fun prime(c: Context) {
             val dx = (lo - me.lon) * 111320 * cos(Math.toRadians(me.lat)); val dn = (la - me.lat) * 110540
             return Offset(c.x + ((dx * cos(a) - dn * sin(a)) * k).toFloat(), c.y - ((dx * sin(a) + dn * cos(a)) * k).toFloat())
         }
-        val pts = Store.track.takeLast(500).map { xy(it.lat, it.lon) }
-        for (i in 1 until pts.size) drawLine(pri.copy(alpha = .6f), pts[i - 1], pts[i], 4f)
+        for (id in Store.visibleTrips()) {
+            val pts = Store.track.filter { it.trip == id }.takeLast(500).map { xy(it.lat, it.lon) }
+            for (i in 1 until pts.size) drawLine(pri.copy(alpha = .6f), pts[i - 1], pts[i], 4f)
+        }
         Store.marks.forEach { drawCircle(if (it.id == t?.id) sec else pri, if (it.id == t?.id) 14f else 8f, xy(it.lat, it.lon)) }
         if (t != null) drawLine(sec, c, xy(t.lat, t.lon), 5f)
         drawCircle(Color.White, 10f, c)
@@ -340,23 +342,24 @@ fun prime(c: Context) {
         }
         Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(10.dp), Alignment.CenterVertically) {
             Chip(SegItem("GPS", if (Store.gpsOn) Icons.Default.GpsFixed else Icons.Default.GpsOff, Store.gpsOn) { toggleGps(ctx) }, Modifier, false)
-            Text(satText(), style = MaterialTheme.typography.labelMedium)
+            Chip(SegItem(tr("История", "History"), Icons.Default.History, Store.showHistory) { Store.switchHistory(!Store.showHistory); Store.viewTrip = -1 }, Modifier, false)
         }
+        Text(satText(), style = MaterialTheme.typography.labelMedium)
         if (me != null && t != null) {
             val d = Geo.dist(me.lat, me.lon, t.lat, t.lon)
             Text(if (d < 15) tr("На месте", "Arrived") else Store.curHeading(me)?.let { turnText(Geo.rel(me, t, it)) } ?: tr("Идите — определю направление", "Keep moving to get a direction"),
                 style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-            Text(t.name + " · " + Geo.fmt(d), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(tr("Цель: ", "Target: ") + t.name + " · " + Geo.fmt(d), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(if (Store.guiding) tr("Голосовые подсказки включены", "Voice guidance on") else tr("Подсказки выключены", "Guidance off"), style = MaterialTheme.typography.labelMedium)
         } else Text(
             if (!Store.gpsOn) tr("Включите GPS или нажмите «Старт», чтобы записывать маршрут", "Turn on GPS or press Start to record your route")
             else if (me == null) tr("Ищу спутники…", "Searching for satellites…")
             else if (Store.recording) tr("Идёт запись, подсказки молчат. Выберите цель, чтобы вернуться", "Recording quietly. Choose a target to go back")
             else tr("GPS работает. Выберите цель или нажмите «Старт»", "GPS is on. Choose a target or press Start"))
-        // три пары кнопок: линия между кнопками показывает связь
+        // три пары кнопок: линия между кнопками показывает связь; «Стоп» горит, пока идёт запись, подсказки или автоматический GPS
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PairCol(
-                SegItem(if (Store.recording) tr("Стоп", "Stop") else tr("Старт", "Start"), selected = Store.recording) { if (Store.recording) stopRecording(ctx) else startRecording(ctx) },
+                SegItem(if (Store.busy) tr("Стоп", "Stop") else tr("Старт", "Start"), selected = Store.busy) { if (Store.busy) stopRecording(ctx) else startRecording(ctx) },
                 SegItem(tr("К старту", "To start"), enabled = st != null) { goTo(ctx, st!!.id) }, Modifier.weight(1f))
             PairCol(
                 SegItem(tr("Метка", "Mark")) { add = true },
@@ -365,11 +368,11 @@ fun prime(c: Context) {
                 SegItem(tr("Компас", "Compass"), selected = Store.compass) { Store.switchCompass(!Store.compass) },
                 SegItem(if (Store.guiding) tr("Тишина", "Silence") else tr("Голос", "Voice"), selected = !Store.guiding && t != null, enabled = t != null) { Store.guiding = !Store.guiding }, Modifier.weight(1f))
         }
+        st?.let { Text(tr("«К старту» ведёт на: ", "\"To start\" leads to: ") + it.name, style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis) }
     }
     if (add) MarkDialog(null, null, null) { add = false }
     if (pick) TargetDialog { pick = false }
 }
-
 @Composable fun PairCol(a: SegItem, b: SegItem, mod: Modifier) {
     Column(mod, horizontalAlignment = Alignment.CenterHorizontally) {
         Chip(a, Modifier.fillMaxWidth(), true, false)
@@ -458,7 +461,7 @@ fun prime(c: Context) {
         Seg(listOf(SegItem(tr("Очистить трек", "Clear track"), Icons.Default.Delete, danger = true) { Store.track.clear(); Store.saveTrack() }))
     }
 }
-const val HELP_RU = """0. Кнопка «GPS» включает определение места (виден счётчик спутников) без записи маршрута.
+const val HELP_RU = """0. Кнопка «GPS» включает определение места (виден счётчик спутников) без записи маршрута. Кнопка «История» показывает или скрывает линии прошлых маршрутов; пока она выключена, виден только маршрут текущего старта. «Стоп» горит, пока идёт запись или подсказки.
 1. «Навигация» → «Старт»: начинается запись маршрута (GPS включится сам). Приложение молчит и только пишет трек. В точке старта создаётся метка «Старт №N …».
 2. Чтобы вернуться, нажмите «К старту» или выберите любую другую метку: кнопка «Цель», значок стрелки у метки или кнопка «Цель» в окне метки. GPS включится сам, если он выключен. С этого момента голос подсказывает по-простому: «Развернитесь», «Поверните направо», «Держитесь правее на 30 градусов» — и называет расстояние до цели. Когда вы на месте, голос скажет «На месте» и замолчит; у стартовой точки запись маршрута остановится сама.
 3. Кнопка «Тишина» выключает подсказки (запись маршрута продолжается), кнопка «Голос» включает их снова. Интервал подсказок меняется в настройках.
@@ -480,7 +483,7 @@ const val HELP_RU = """0. Кнопка «GPS» включает определе
 Инструкция и статистика трека за час, сутки и всё время — на вкладке «Настройки». Микрофон есть в каждом поле ввода.
 
 Советы: разрешите геолокацию «всегда» и отключите экономию батареи для приложения."""
-const val HELP_EN = """0. The "GPS" button turns on positioning (satellite count shown) without recording a route.
+const val HELP_EN = """0. The "GPS" button turns on positioning (satellite count shown) without recording a route. The "History" button shows or hides the lines of past routes; while it is off, only the current start's route is shown. "Stop" is lit while recording or guiding.
 1. Navigate → Start: route recording begins (GPS turns on by itself). The app stays silent and only records the track. A "Start #N …" mark is created at your position.
 2. To go back, press "To start" or choose any other mark: the "Target" button, the arrow icon on a mark or the "Target" button in the mark window. GPS turns on by itself if it was off. From then on the voice gives plain instructions: "Turn around", "Turn right", "Bear right by 30 degrees" — and the distance to the target. When you arrive it says "Arrived" and goes quiet; at the start point recording stops by itself.
 3. "Silence" turns guidance off while the route keeps recording; "Voice" turns it back on. The guidance interval is set in Settings.

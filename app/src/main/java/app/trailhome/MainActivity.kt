@@ -204,7 +204,7 @@ fun prime(c: Context) {
         }) { Text(tr("Сохранить", "Save")) }
     }, dismissButton = { TextButton(onDone) { Text(tr("Отмена", "Cancel")) } })
     if (confirmDel && m != null) ConfirmDialog(tr("Удалить «", "Delete \"") + m.name + tr("»?", "\"?"),
-        { Store.marks.remove(m); Store.saveMarks(); if (Store.targetId == m.id) Store.select(-1); confirmDel = false; onDone() }, { confirmDel = false })
+        { Store.marks.remove(m); Store.saveMarks(); Store.cleanTracks(); if (Store.targetId == m.id) Store.select(-1); confirmDel = false; onDone() }, { confirmDel = false })
     if (createFrom && m != null) MarkDialog(null, m.lat, m.lon) { createFrom = false; onDone() }
 }
 @Composable fun MapChoices() {
@@ -356,14 +356,16 @@ fun prime(c: Context) {
             else if (me == null) tr("Ищу спутники…", "Searching for satellites…")
             else if (Store.recording) tr("Идёт запись, подсказки молчат. Выберите цель, чтобы вернуться", "Recording quietly. Choose a target to go back")
             else tr("GPS работает. Выберите цель или нажмите «Старт»", "GPS is on. Choose a target or press Start"))
-        // три пары кнопок: линия между кнопками показывает связь; «Стоп» горит, пока идёт запись, подсказки или автоматический GPS
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // три пары кнопок, пары разделены вертикальными линиями; «Стоп» горит, пока идёт запись, подсказки или автоматический GPS
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PairCol(
                 SegItem(if (Store.busy) tr("Стоп", "Stop") else tr("Старт", "Start"), selected = Store.busy) { if (Store.busy) stopRecording(ctx) else startRecording(ctx) },
                 SegItem(tr("К старту", "To start"), enabled = st != null) { goTo(ctx, st!!.id) }, Modifier.weight(1f))
+            VDivider()
             PairCol(
                 SegItem(tr("Метка", "Mark")) { add = true },
                 SegItem(tr("Цель", "Target")) { pick = true }, Modifier.weight(1f))
+            VDivider()
             PairCol(
                 SegItem(tr("Компас", "Compass"), selected = Store.compass) { Store.switchCompass(!Store.compass) },
                 SegItem(if (Store.guiding) tr("Тишина", "Silence") else tr("Голос", "Voice"), selected = !Store.guiding && t != null, enabled = t != null) { Store.guiding = !Store.guiding }, Modifier.weight(1f))
@@ -374,12 +376,14 @@ fun prime(c: Context) {
     if (pick) TargetDialog { pick = false }
 }
 @Composable fun PairCol(a: SegItem, b: SegItem, mod: Modifier) {
-    Column(mod, horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(mod, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Chip(a, Modifier.fillMaxWidth(), true, false)
-        Box(Modifier.width(2.dp).height(12.dp).background(MaterialTheme.colorScheme.outline))
         Chip(b, Modifier.fillMaxWidth(), true, false)
     }
 }
+
+// Линия между парами: от верхнего края верхней кнопки до нижнего края нижней (отступ 8 dp = запас под зону нажатия), цвет и толщина как у рамки кнопок
+@Composable fun VDivider() { Box(Modifier.padding(vertical = 8.dp).fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outline)) }
 @Composable fun MarksScreen() {
     val ctx = LocalContext.current
     var add by remember { mutableStateOf(false) }; var edit by remember { mutableStateOf<Mark?>(null) }; var q by remember { mutableStateOf("") }
@@ -429,7 +433,7 @@ fun prime(c: Context) {
     edit?.let { m -> MarkDialog(m, null, null) { edit = null } }
     if (clear) ConfirmDialog(tr("Удалить все старты? Метки останутся.", "Delete all starts? Marks will stay."), {
         if (Store.target()?.let { Store.isStart(it) } == true) Store.select(-1)
-        Store.marks.removeAll { Store.isStart(it) }; Store.saveMarks(); Store.markStart(-1); clear = false
+        Store.marks.removeAll { Store.isStart(it) }; Store.saveMarks(); Store.markStart(-1); Store.cleanTracks(); clear = false
     }, { clear = false })
 }
 @Composable fun TrackScreen() {
@@ -476,7 +480,7 @@ const val HELP_RU = """0. Кнопка «GPS» включает определе
 
 Карта: нажмите или удерживайте палец на карте — откроется окно новой метки с этими координатами. Нажмите на метку, чтобы изменить её или сделать целью. Кнопка со слоями выбирает источник карты (Google, Яндекс, OSM) и тип; «+» и «−» — масштаб; «История» показывает или скрывает линии всех маршрутов (по умолчанию скрыты — видна только линия текущего старта). Кнопка «Маршрут» в окне метки или старта показывает путь от старта до стопа. Значок карты в списке выделяет метку мишенью. Значки: фиолетовый с домиком — старт, оранжевый — метка, крупный с жёлтым ореолом — цель, синяя точка — вы, розовая линия — ваш путь. Карта OpenStreetMap подгружается из интернета и сохраняется в память: заранее просмотрите нужный район дома, чтобы он был доступен в лесу без связи.
 
-Метки: нажмите на метку или старт — откроется окно с названием, заметкой и координатами. «Цель» ведёт к метке, «Навигатор» открывает список приложений с картами для маршрута до этих координат (например, на авто), «Удалить» удаляет метку после подтверждения. В списке заметка показана одной строкой. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
+Метки: нажмите на метку или старт — откроется окно с названием, заметкой и координатами. «Цель» ведёт к метке, «Навигатор» открывает список приложений с картами для маршрута до этих координат (например, на авто), «Удалить» удаляет метку после подтверждения. В списке заметка показана одной строкой. Удаление старта удаляет и его маршрут; маршруты, не привязанные ни к одному старту, очищаются. Новое окно метки подставляет ваши координаты, их можно изменить. Новое надиктованное название заменяет старое, заметка дополняется. Экспорт и импорт — GPX.
 
 Трек: путь за час, сутки или всё время с разбивкой по периодам и дням.
 
@@ -498,7 +502,7 @@ Radar: up is where the phone points; the yellow line leads to the target; the gr
 
 Map: tap or long-press the map to open a new mark window with those coordinates. Tap a mark to edit it or make it the target. The layers button chooses the map source (Google, Yandex, OSM) and type; "+" and "−" zoom; "History" shows or hides the lines of all routes (hidden by default — only the current start's line is shown). The "Route" button in a mark or start window shows the path from start to stop. The map icon in the list highlights the mark with a target ring. Icons: purple with a house — start, orange — mark, large with a yellow halo — target, blue dot — you, pink line — your path. The OpenStreetMap map is loaded from the internet and cached: browse the area at home beforehand to have it in the forest without signal.
 
-Marks: tap a mark or a start to open a window with its name, note and coordinates. "Target" guides you to it, "Navigator" opens the list of map apps for a route to those coordinates (e.g. by car), "Delete" removes the mark after confirmation. The list shows the note on one line. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
+Marks: tap a mark or a start to open a window with its name, note and coordinates. "Target" guides you to it, "Navigator" opens the list of map apps for a route to those coordinates (e.g. by car), "Delete" removes the mark after confirmation. The list shows the note on one line. Deleting a start also deletes its route; routes not attached to any start are cleared. A new mark window fills in your coordinates, you can edit them. A newly dictated name replaces the old one, a dictated note is appended. Export and import use GPX.
 
 Track: your path for an hour, a day or all time, grouped by period and day.
 

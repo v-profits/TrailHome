@@ -100,7 +100,7 @@
 56-->C:\android_\TrailHome\app\src\main\AndroidManifest.xml:11:79-141
 57        <activity
 57-->C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:9-14:20
-58            android:name="app.trailhome.MainActivity"
+58            android:name="semenenko.trailhome.MainActivity"
 58-->C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:19-47
 59            android:exported="true" >
 59-->C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:48-71
@@ -118,7 +118,7 @@
 66
 67        <service
 67-->C:\android_\TrailHome\app\src\main\AndroidManifest.xml:15:9-112
-68            android:name="app.trailhome.NavService"
+68            android:name="semenenko.trailhome.NavService"
 68-->C:\android_\TrailHome\app\src\main\AndroidManifest.xml:15:18-44
 69            android:exported="false"
 69-->C:\android_\TrailHome\app\src\main\AndroidManifest.xml:15:86-110

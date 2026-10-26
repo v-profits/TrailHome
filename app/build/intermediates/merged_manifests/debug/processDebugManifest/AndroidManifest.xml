@@ -55,7 +55,7 @@
         android:testOnly="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar" >
         <activity
-            android:name="app.trailhome.MainActivity"
+            android:name="semenenko.trailhome.MainActivity"
             android:exported="true" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -65,7 +65,7 @@
         </activity>
 
         <service
-            android:name="app.trailhome.NavService"
+            android:name="semenenko.trailhome.NavService"
             android:exported="false"
             android:foregroundServiceType="location" />
 

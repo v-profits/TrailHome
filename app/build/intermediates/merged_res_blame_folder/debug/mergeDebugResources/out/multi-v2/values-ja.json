@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "app.trailhome.app-mergeDebugResources-39:/values-ja/values-ja.xml",
+            "outputFile": "semenenko.trailhome.app-mergeDebugResources-39:/values-ja/values-ja.xml",
             "map": [
                 {
                     "source": "C:\\Users\\user\\.gradle\\caches\\9.0.0\\transforms\\35f891f7e3a4a7b5c6f5ab07c3e80acf\\transformed\\material3-release\\res\\values-ja\\values-ja.xml",

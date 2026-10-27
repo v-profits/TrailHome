@@ -114,7 +114,7 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\user\.gradle\cache
 		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:11:44-78
 	android:theme
 		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:11:79-141
-activity#semenenko.trailhome.MainActivity
+activity#com.semenenko.trailhome.MainActivity
 ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:9-14:20
 	android:exported
 		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:48-71
@@ -130,7 +130,7 @@ category#android.intent.category.LAUNCHER
 ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:13:79-138
 	android:name
 		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:13:89-136
-service#semenenko.trailhome.NavService
+service#com.semenenko.trailhome.NavService
 ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:15:9-112
 	android:exported
 		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:15:86-110
@@ -256,7 +256,7 @@ ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transf
 		ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:24:9-44
 	android:name
 		ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:23:9-81
-permission#app.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+permission#com.semenenko.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:22:5-24:47
 	android:protectionLevel
 		ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:24:9-44
@@ -266,7 +266,7 @@ uses-permission#${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:26:5-97
 	android:name
 		ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:26:22-94
-uses-permission#app.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+uses-permission#com.semenenko.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:26:5-97
 	android:name
 		ADDED from [androidx.core:core:1.13.1] C:\Users\user\.gradle\caches\9.0.0\transforms\8c97d544f9fbff002fa0e9b4e2fe7242\transformed\core-1.13.1\AndroidManifest.xml:26:22-94

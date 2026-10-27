@@ -4,7 +4,7 @@
     "type": "COMPATIBLE_SCREEN_MANIFEST",
     "kind": "Directory"
   },
-  "applicationId": "app.trailhome",
+  "applicationId": "com.semenenko.trailhome",
   "variantName": "debug",
   "elements": []
 }

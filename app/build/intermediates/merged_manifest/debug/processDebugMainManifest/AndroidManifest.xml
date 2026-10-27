@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="app.trailhome"
+    package="com.semenenko.trailhome"
     android:versionCode="1"
     android:versionName="1.0" >
 
@@ -23,10 +23,10 @@
     </queries>
 
     <permission
-        android:name="app.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        android:name="com.semenenko.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         android:protectionLevel="signature" />
 
-    <uses-permission android:name="app.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+    <uses-permission android:name="com.semenenko.trailhome.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
 
     <supports-screens
         android:anyDensity="true"
@@ -55,7 +55,7 @@
         android:testOnly="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar" >
         <activity
-            android:name="semenenko.trailhome.MainActivity"
+            android:name="com.semenenko.trailhome.MainActivity"
             android:exported="true" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -65,13 +65,13 @@
         </activity>
 
         <service
-            android:name="semenenko.trailhome.NavService"
+            android:name="com.semenenko.trailhome.NavService"
             android:exported="false"
             android:foregroundServiceType="location" />
 
         <provider
             android:name="androidx.startup.InitializationProvider"
-            android:authorities="app.trailhome.androidx-startup"
+            android:authorities="com.semenenko.trailhome.androidx-startup"
             android:exported="false" >
             <meta-data
                 android:name="androidx.emoji2.text.EmojiCompatInitializer"

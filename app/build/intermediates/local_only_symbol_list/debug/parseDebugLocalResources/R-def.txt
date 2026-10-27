@@ -11,6 +11,7 @@ color pin_mark
 color pin_outline
 color pin_start
 color pin_white
+drawable ic_finish
 drawable ic_focus
 drawable ic_foreground
 drawable ic_me

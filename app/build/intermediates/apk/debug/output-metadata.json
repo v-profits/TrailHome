@@ -4,7 +4,7 @@
     "type": "APK",
     "kind": "Directory"
   },
-  "applicationId": "app.trailhome",
+  "applicationId": "com.semenenko.trailhome",
   "variantName": "debug",
   "elements": [
     {

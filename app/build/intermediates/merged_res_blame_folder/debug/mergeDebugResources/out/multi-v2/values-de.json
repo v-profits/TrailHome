@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "semenenko.trailhome.app-mergeDebugResources-39:/values-de/values-de.xml",
+            "outputFile": "com.semenenko.trailhome.app-mergeDebugResources-39:/values-de/values-de.xml",
             "map": [
                 {
                     "source": "C:\\Users\\user\\.gradle\\caches\\9.0.0\\transforms\\91eefb059e468f25daadee8949f0dd1a\\transformed\\osmdroid-android-6.1.18\\res\\values-de\\values-de.xml",

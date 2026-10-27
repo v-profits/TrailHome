@@ -1,4 +1,4 @@
-semenenko.trailhome
+com.semenenko.trailhome
 attr alpha
 attr font
 attr fontProviderAuthority
@@ -66,6 +66,7 @@ drawable ic_call_answer_video
 drawable ic_call_answer_video_low
 drawable ic_call_decline
 drawable ic_call_decline_low
+drawable ic_finish
 drawable ic_focus
 drawable ic_foreground
 drawable ic_me

@@ -9,6 +9,6 @@
     <color name="me_dot">#1E88E5</color>
     <color name="me_halo">#401E88E5</color>
     <color name="me_outline">#0B2A57</color>
-    <color name="focus_color">#1A000000</color>
-    <color name="focus_halo">#00FFFFFF</color>
+    <color name="focus_color">#000000</color>
+    <color name="focus_halo">#FFFFFF</color>
 </resources>

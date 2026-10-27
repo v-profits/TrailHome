@@ -23,6 +23,7 @@ object Store {
     var focus by mutableStateOf<Mark?>(null)
     var sp: android.content.SharedPreferences? = null
     var guiding by mutableStateOf(false)
+    var askRate = false                       // показать окно оценки: 10-й запуск и далее каждые 50, пока оценки нет
     var gpsOn by mutableStateOf(false)        // служба GPS работает
     var autoGps = false                       // GPS включён автоматически (Старт или выбор цели)
     var showHistory by mutableStateOf(false)  // показывать линии всех маршрутов
@@ -167,8 +168,8 @@ fun turnText(rel: Double, speech: Boolean = false): String {
     val right = rel <= 180
     return when {
         d > 135 -> tr("Развернитесь", "Turn around")
-        d > 45 -> if (right) tr("Поверните направо", "Turn right") else tr("Поверните налево", "Turn left")
-        d < 10 -> tr("Идите прямо", "Go straight")
+        d > 45 -> if (right) (if (speech) tr("Поверните направо", "Turn right") else tr("Направо", "Turn right")) else (if (speech) tr("Поверните налево", "Turn left") else tr("Налево", "Turn left"))
+        d < 10 -> if (speech) tr("Идите прямо", "Go straight") else tr("Прямо", "Go straight")
         else -> (if (right) (if (speech) tr("Держитесь правее", "Bear right") else tr("Правее", "Bear right")) else (if (speech) tr("Держитесь левее", "Bear left") else tr("Левее", "Bear left"))) + tr(" на ", " by ") + "$n°"
     }
 }

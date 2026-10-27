@@ -11,6 +11,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
@@ -85,6 +86,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     override fun onAccuracyChanged(s: Sensor?, a: Int) {}
     override fun onCreate(b: Bundle?) {
         super.onCreate(b); Store.init(this)
+        // счётчик запусков для окна оценки
+        val sp = getSharedPreferences("s", 0); val opens = sp.getInt("opens", 0) + 1; sp.edit().putInt("opens", opens).apply()
+        Store.askRate = !sp.getBoolean("rated", false) && (opens == 10 || (opens > 10 && (opens - 10) % 50 == 0))
         Configuration.getInstance().apply {
             userAgentValue = packageName
             osmdroidBasePath = File(filesDir, "osm"); osmdroidTileCache = File(filesDir, "osm/tiles")
@@ -114,6 +118,7 @@ fun prime(c: Context) {
 
 @Composable fun App() {
     val ctx = LocalContext.current
+    var showRate by remember { mutableStateOf(Store.askRate) }
     val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { prime(ctx) }
     LaunchedEffect(Unit) {
         prime(ctx)
@@ -141,6 +146,7 @@ fun prime(c: Context) {
     if (Store.showHelp) AlertDialog({ Store.showHelp = false }, title = { Text(tr("Инструкция", "User guide")) },
         text = { Text(if (L.en) HELP_EN else HELP_RU, Modifier.verticalScroll(rememberScrollState())) },
         confirmButton = { TextButton({ Store.showHelp = false }) { Text(tr("Закрыть", "Close")) } })
+    if (showRate) RateDialog { showRate = false }
 }
 @Composable fun VoiceField(v: String, onV: (String) -> Unit, label: String, kb: KeyboardType = KeyboardType.Text, append: Boolean = true, multiline: Boolean = false) {
     val ctx = LocalContext.current
@@ -586,6 +592,7 @@ Tips: allow location "all the time" and disable battery optimization for the app
         Seg(listOf(
             SegItem(tr("Инструкция", "User guide"), Icons.Default.Info) { Store.showHelp = true },
             SegItem(tr("Статистика трека", "Track stats"), Icons.Default.Timeline) { Store.tab = 4 }), fill = true)
+        Seg(listOf(SegItem(tr("Политика конфиденциальности", "Privacy policy"), Icons.Default.PrivacyTip) { openUrl(ctx, PRIVACY_URL) }), fill = true)
     }
     if (showVoices) tts?.let { x ->
         val list = Speaker.voices(x)
@@ -697,4 +704,43 @@ fun tabTitle(t: Int) = when (t) {
         Slider(v, { on(it.toInt().toFloat()) }, Modifier.weight(1f), valueRange = range)
         IconButton({ on((v.toInt() + 1).toFloat().coerceIn(range)) }) { Icon(Icons.Default.Add, tr("Больше", "More")) }
     }
+}
+
+// Ссылка на политику конфиденциальности (страница из папки docs репозитория, GitHub Pages). Поменяйте, если разместите её в другом месте
+const val PRIVACY_URL = "https://v-profits.github.io/TrailHome/privacy.html"
+const val DEV_EMAIL = "vl.profits@gmail.com"
+
+fun openUrl(c: Context, url: String) {
+    try { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (e: Exception) { Toast.makeText(c, tr("Не удалось открыть ссылку", "Could not open the link"), Toast.LENGTH_SHORT).show() }
+}
+
+// Оценка 4–5 — страница приложения в RuStore; 1–3 — письмо разработчику. После оценки окно больше не показывается
+fun rateApp(c: Context, stars: Int) {
+    c.getSharedPreferences("s", 0).edit().putBoolean("rated", true).apply()
+    if (stars >= 4) {
+        val link = "apps.rustore.ru/app/" + c.packageName
+        try { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("rustore://$link"))) } catch (e: Exception) { openUrl(c, "https://$link") }
+    } else {
+        val ver = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName }.getOrNull() ?: ""
+        val i = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")).putExtra(Intent.EXTRA_EMAIL, arrayOf(DEV_EMAIL))
+            .putExtra(Intent.EXTRA_SUBJECT, "TrailHome: отзыв ($stars из 5)")
+            .putExtra(Intent.EXTRA_TEXT, "Что не понравилось или не работает:\n\n\n—\nВерсия: $ver, Android ${Build.VERSION.RELEASE}, ${Build.MODEL}")
+        try { c.startActivity(i) } catch (e: Exception) { Toast.makeText(c, tr("Нет почтовой программы. Напишите на ", "No mail app. Write to ") + DEV_EMAIL, Toast.LENGTH_LONG).show() }
+    }
+}
+
+@Composable fun RateDialog(onDone: () -> Unit) {
+    val ctx = LocalContext.current
+    var r by remember { mutableIntStateOf(0) }
+    AlertDialog(onDone, title = { Text(tr("Оцените приложение", "Rate the app")) }, text = {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(tr("Ваша оценка поможет сделать приложение лучше", "Your rating helps improve the app"))
+            Row(horizontalArrangement = Arrangement.Center) {
+                for (i in 1..5) IconButton({ r = i }) { Icon(if (i <= r) Icons.Default.Star else Icons.Default.StarBorder, "$i", Modifier.size(36.dp), tint = Color(0xFFFFB300)) }
+            }
+            if (r in 1..3) Text(tr("Откроется письмо разработчику: напишите, что не понравилось", "An email to the developer will open: tell us what went wrong"), style = MaterialTheme.typography.labelMedium)
+            if (r >= 4) Text(tr("Спасибо! Откроется страница приложения в RuStore", "Thank you! The RuStore page will open"), style = MaterialTheme.typography.labelMedium)
+        }
+    }, confirmButton = { TextButton({ rateApp(ctx, r); onDone() }, enabled = r > 0) { Text(tr("Отправить", "Send")) } },
+        dismissButton = { TextButton(onDone) { Text(tr("Позже", "Later")) } })
 }

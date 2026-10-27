@@ -11,4 +11,5 @@
     <color name="me_outline">#0B2A57</color>
     <color name="focus_color">#000000</color>
     <color name="focus_halo">#FFFFFF</color>
+    <color name="col_test">#B3E5FC</color>
 </resources>

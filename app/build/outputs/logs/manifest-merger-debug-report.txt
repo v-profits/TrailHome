@@ -116,6 +116,8 @@ MERGED from [androidx.startup:startup-runtime:1.1.1] C:\Users\user\.gradle\cache
 		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:11:79-141
 activity#com.semenenko.trailhome.MainActivity
 ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:9-14:20
+	android:screenOrientation
+		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:72-108
 	android:exported
 		ADDED from C:\android_\TrailHome\app\src\main\AndroidManifest.xml:12:48-71
 	android:name

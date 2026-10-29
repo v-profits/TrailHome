@@ -22,7 +22,6 @@ int color call_notification_decline_color 0x7f020003
 int color col_test 0x7f020016
 int color focus_color 0x7f020004
 int color focus_halo 0x7f020005
-int color ic_bg 0x7f020006
 int color me_dot 0x7f020007
 int color me_halo 0x7f020008
 int color me_outline 0x7f020009
@@ -69,6 +68,8 @@ int drawable ic_call_decline_low 0x7f04000b
 int drawable ic_finish 0x7f04000c
 int drawable ic_focus 0x7f04000d
 int drawable ic_foreground 0x7f04000e
+int drawable ic_launcher_background 0x7f040038
+int drawable ic_launcher_foreground 0x7f040039
 int drawable ic_me 0x7f04000f
 int drawable ic_menu_compass 0x7f040010
 int drawable ic_menu_mapmode 0x7f040011

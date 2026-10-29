@@ -23,7 +23,6 @@ color call_notification_decline_color
 color col_test
 color focus_color
 color focus_halo
-color ic_bg
 color me_dot
 color me_halo
 color me_outline
@@ -70,6 +69,8 @@ drawable ic_call_decline_low
 drawable ic_finish
 drawable ic_focus
 drawable ic_foreground
+drawable ic_launcher_background
+drawable ic_launcher_foreground
 drawable ic_me
 drawable ic_menu_compass
 drawable ic_menu_mapmode

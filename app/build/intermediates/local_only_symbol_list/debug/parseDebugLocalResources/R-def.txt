@@ -3,7 +3,6 @@ local
 color col_test
 color focus_color
 color focus_halo
-color ic_bg
 color me_dot
 color me_halo
 color me_outline
@@ -15,6 +14,8 @@ color pin_white
 drawable ic_finish
 drawable ic_focus
 drawable ic_foreground
+drawable ic_launcher_background
+drawable ic_launcher_foreground
 drawable ic_me
 drawable ic_pin_mark
 drawable ic_pin_mark_target
